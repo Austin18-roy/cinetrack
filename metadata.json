@@ -1,0 +1,5 @@
+{
+  "name": "CineTrack",
+  "description": "A modern, dark-themed media tracker for movies, series, and anime with episode progress and status tracking.",
+  "requestFramePermissions": []
+}

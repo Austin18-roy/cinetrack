@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "MediaItem": {
+      "title": "MediaItem",
+      "description": "A movie, series, or anime being tracked.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user who owns this item." },
+        "title": { "type": "string", "description": "Title of the media." },
+        "type": { "type": "string", "enum": ["movie", "series", "anime"], "description": "Type of media." },
+        "status": { "type": "string", "enum": ["plan-to-watch", "watching", "completed"], "description": "Current status." },
+        "currentEpisode": { "type": "number", "description": "Current episode number (for series/anime)." },
+        "totalEpisodes": { "type": "number", "description": "Total number of episodes (for series/anime)." },
+        "rating": { "type": "number", "description": "User rating (1-5)." },
+        "notes": { "type": "string", "description": "Personal notes." },
+        "posterUrl": { "type": "string", "description": "URL to the poster image." },
+        "externalId": { "type": "number", "description": "ID from external source (e.g. TMDb)." },
+        "source": { "type": "string", "enum": ["tmdb", "manual"], "description": "Source of the data." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the item was added." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the item was last updated." }
+      },
+      "required": ["userId", "title", "type", "status", "createdAt", "updatedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/mediaItems/{itemId}": {
+      "schema": "MediaItem",
+      "description": "Collection of media items tracked by users."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents."
+    }
+  }
+}

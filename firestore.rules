@@ -1,0 +1,101 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (UID)
+    // Fields:
+    //   - email: string (required, email format)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: mediaItems
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required, matches owner UID)
+    //   - title: string (required, 1-200 chars)
+    //   - type: string (required, ['movie', 'series', 'anime'])
+    //   - status: string (required, ['plan-to-watch', 'watching', 'completed'])
+    //   - currentEpisode: number (optional, >= 0)
+    //   - totalEpisodes: number (optional, >= 0)
+    //   - rating: number (optional, 1-10)
+    //   - notes: string (optional, max 1000 chars)
+    //   - createdAt: timestamp (required)
+    //   - updatedAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['email', 'displayName', 'photoURL', 'createdAt']) &&
+             isValidEmail(data.email) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidMediaItem(data) {
+      return hasOnlyAllowedFields(['userId', 'title', 'type', 'status', 'currentEpisode', 'totalEpisodes', 'rating', 'notes', 'posterUrl', 'externalId', 'source', 'createdAt', 'updatedAt']) &&
+             data.userId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.type in ['movie', 'series', 'anime'] &&
+             data.status in ['plan-to-watch', 'watching', 'completed'] &&
+             (!('currentEpisode' in data) || (data.currentEpisode is number && data.currentEpisode >= 0)) &&
+             (!('totalEpisodes' in data) || (data.totalEpisodes is number && data.totalEpisodes >= 0)) &&
+             (!('rating' in data) || (data.rating is number && data.rating >= 1 && data.rating <= 10)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+             (!('posterUrl' in data) || (data.posterUrl is string && data.posterUrl.size() <= 500)) &&
+             (!('externalId' in data) || (data.externalId is number)) &&
+             (!('source' in data) || (data.source in ['tmdb', 'manual'])) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+    }
+
+    match /mediaItems/{itemId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidMediaItem(request.resource.data);
+      allow update: if isDocOwner() && isValidMediaItem(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+  }
+}
