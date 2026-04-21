@@ -28,6 +28,17 @@ service cloud.firestore {
     //   - createdAt: timestamp (required)
     //   - updatedAt: timestamp (required)
     //
+    // Collection: reminders
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required, matches owner UID)
+    //   - externalId: string or number (required)
+    //   - type: string (required)
+    //   - title: string (required)
+    //   - posterUrl: string (optional)
+    //   - releaseDate: string (required)
+    //   - createdAt: timestamp (required)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -65,7 +76,7 @@ service cloud.firestore {
     }
 
     function isValidMediaItem(data) {
-      return hasOnlyAllowedFields(['userId', 'title', 'type', 'status', 'currentEpisode', 'totalEpisodes', 'rating', 'notes', 'posterUrl', 'externalId', 'source', 'createdAt', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['userId', 'title', 'type', 'status', 'currentEpisode', 'totalEpisodes', 'rating', 'notes', 'posterUrl', 'externalId', 'source', 'createdAt', 'updatedAt', 'genreIds', 'watchedEpisodes', 'lastWatchedAt', 'trailer_key', 'seasons', 'hypeScore', 'recommendationReason']) &&
              data.userId == request.auth.uid &&
              data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
              data.type in ['movie', 'series', 'anime'] &&
@@ -75,10 +86,20 @@ service cloud.firestore {
              (!('rating' in data) || (data.rating is number && data.rating >= 1 && data.rating <= 10)) &&
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
              (!('posterUrl' in data) || (data.posterUrl is string && data.posterUrl.size() <= 500)) &&
-             (!('externalId' in data) || (data.externalId is number)) &&
+             (!('externalId' in data) || (data.externalId is number || data.externalId is string)) &&
              (!('source' in data) || (data.source in ['tmdb', 'manual'])) &&
              data.createdAt is timestamp &&
              data.updatedAt is timestamp;
+    }
+
+    function isValidReminder(data) {
+      return hasOnlyAllowedFields(['userId', 'externalId', 'type', 'title', 'posterUrl', 'releaseDate', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             (data.externalId is string || data.externalId is number) &&
+             data.type is string &&
+             data.title is string &&
+             data.releaseDate is string &&
+             data.createdAt is timestamp;
     }
 
     // ===============================================================
@@ -95,6 +116,13 @@ service cloud.firestore {
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow create: if isAuthenticated() && isValidMediaItem(request.resource.data);
       allow update: if isDocOwner() && isValidMediaItem(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /reminders/{reminderId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidReminder(request.resource.data);
+      allow update: if isDocOwner() && isValidReminder(request.resource.data);
       allow delete: if isDocOwner();
     }
   }

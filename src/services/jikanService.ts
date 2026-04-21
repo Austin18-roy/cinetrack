@@ -5,31 +5,47 @@ const BASE_URL = 'https://api.jikan.moe/v4';
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Jikan API has rate limits (3 requests per second, 60 per minute)
-// We add a small delay to prevent hitting the rate limit
-async function fetchJikan(endpoint: string, params: Record<string, string> = {}) {
+async function fetchJikan(endpoint: string, params: Record<string, string> = {}, retries = 3) {
   const queryParams = new URLSearchParams(params);
   const url = `${BASE_URL}${endpoint}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
   
-  try {
-    await delay(350); // 350ms delay to respect rate limits
-    const response = await fetch(url);
-    if (!response.ok) {
-      console.error('Jikan API Error:', response.statusText);
-      return { data: [], pagination: { has_next_page: false, last_visible_page: 1 } };
+  for (let i = 0; i < retries; i++) {
+    try {
+      await delay(500 + (1000 * i)); // Incremental delay
+      const response = await fetch(url);
+      if (response.status === 429) {
+          console.warn('Jikan Rate Limit (429). Retrying...');
+          continue;
+      }
+      if (!response.ok) {
+        console.error('Jikan API Error:', response.status, response.statusText);
+        // Only return empty if it's the last retry
+        if (i === retries - 1) return { data: [], pagination: { has_next_page: false, last_visible_page: 1 } };
+        continue;
+      }
+      return await response.json();
+    } catch (error) {
+      console.warn(`Jikan Fetch failed attempt ${i + 1}`, error);
+      if (i === retries - 1) {
+        console.error('Jikan Fetch Final Error:', error);
+        return { data: [], pagination: { has_next_page: false, last_visible_page: 1 } };
+      }
     }
-    return await response.json();
-  } catch (error) {
-    console.error('Jikan Fetch Error:', error);
-    return { data: [], pagination: { has_next_page: false, last_visible_page: 1 } };
   }
 }
 
 function mapJikanToTMDB(anime: any): TMDBItem {
+  const poster = anime.images?.webp?.large_image_url || 
+                 anime.images?.jpg?.large_image_url || 
+                 anime.images?.webp?.image_url || 
+                 anime.images?.jpg?.image_url || 
+                 'https://images.unsplash.com/photo-1578632738980-43318b5c9440?q=80&w=1000&auto=format&fit=crop';
+
   return {
     id: `jikan_${anime.mal_id}`,
     title: anime.title_english || anime.title,
     name: anime.title_english || anime.title,
-    poster_path: anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url,
+    poster_path: poster,
     vote_average: anime.score || 0,
     vote_count: anime.scored_by || 0,
     media_type: 'anime',
@@ -39,6 +55,14 @@ function mapJikanToTMDB(anime: any): TMDBItem {
     adult: anime.rating === 'Rx - Hentai',
     popularity: anime.members || 0,
     genre_ids: anime.genres?.map((g: any) => g.mal_id) || [],
+    trailer_key: anime.trailer?.youtube_id,
+    // Extra fields for AI and tracking
+    studios: anime.studios?.map((s: any) => ({ mal_id: s.mal_id, name: s.name })) || [],
+    themes: anime.themes?.map((t: any) => ({ mal_id: t.mal_id, name: t.name })) || [],
+    demographics: anime.demographics?.map((d: any) => ({ mal_id: d.mal_id, name: d.name })) || [],
+    score: anime.score,
+    status: anime.status,
+    episodes: anime.episodes,
   };
 }
 
@@ -46,21 +70,48 @@ export const jikanService = {
   getTopAnime: async (page: number = 1) => {
     const data = await fetchJikan('/top/anime', { page: page.toString() });
     return {
-      results: (data.data || []).map(mapJikanToTMDB),
+      results: (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).map(mapJikanToTMDB),
+      totalPages: data.pagination?.last_visible_page || 1
+    };
+  },
+  getTop10ThisMonth: async (): Promise<TMDBItem[]> => {
+    const data = await fetchJikan('/top/anime', { filter: 'bypopularity', page: '1' });
+    return (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).slice(0, 10).map(mapJikanToTMDB);
+  },
+  getAiringAnime: async (page: number = 1) => {
+    const data = await fetchJikan('/top/anime', { filter: 'airing', page: page.toString() });
+    return {
+      results: (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).map(mapJikanToTMDB),
+      totalPages: data.pagination?.last_visible_page || 1
+    };
+  },
+  getUpcomingAnime: async (page: number = 1) => {
+    const data = await fetchJikan('/seasons/upcoming', { page: page.toString() });
+    return {
+      results: (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).map(mapJikanToTMDB),
+      totalPages: data.pagination?.last_visible_page || 1
+    };
+  },
+  getHiddenGems: async (page: number = 1) => {
+    // Hidden gems: High score, but not in top popularity
+    // We can fetch top rated and filter by popularity or just use a different filter
+    const data = await fetchJikan('/top/anime', { filter: 'favorite', page: page.toString() });
+    return {
+      results: (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).map(mapJikanToTMDB),
       totalPages: data.pagination?.last_visible_page || 1
     };
   },
   getSeasonalAnime: async (page: number = 1) => {
     const data = await fetchJikan('/seasons/now', { page: page.toString() });
     return {
-      results: (data.data || []).map(mapJikanToTMDB),
+      results: (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).map(mapJikanToTMDB),
       totalPages: data.pagination?.last_visible_page || 1
     };
   },
   searchAnime: async (query: string, page: number = 1) => {
     const data = await fetchJikan('/anime', { q: query, page: page.toString() });
     return {
-      results: (data.data || []).map(mapJikanToTMDB),
+      results: (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).map(mapJikanToTMDB),
       totalPages: data.pagination?.last_visible_page || 1
     };
   },
@@ -81,7 +132,7 @@ export const jikanService = {
   getAnimeByGenre: async (genreId: number, page: number = 1) => {
     const data = await fetchJikan('/anime', { genres: genreId.toString(), page: page.toString() });
     return {
-      results: (data.data || []).map(mapJikanToTMDB),
+      results: (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).map(mapJikanToTMDB),
       totalPages: data.pagination?.last_visible_page || 1
     };
   },
@@ -129,5 +180,9 @@ export const jikanService = {
         }] : []
       }
     };
+  },
+  getAnimeEpisodes: async (id: number, page: number = 1) => {
+    const data = await fetchJikan(`/anime/${id}/episodes`, { page: page.toString() });
+    return data;
   }
 };

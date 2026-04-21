@@ -32,6 +32,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["email", "createdAt"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "A reminder for an upcoming media release.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "externalId": { "type": ["string", "number"] },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "posterUrl": { "type": "string" },
+        "releaseDate": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "externalId", "type", "title", "releaseDate", "createdAt"]
     }
   },
   "firestore": {
@@ -42,6 +57,10 @@
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "User profile documents."
+    },
+    "/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "User reminders for upcoming releases."
     }
   }
 }
