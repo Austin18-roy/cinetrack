@@ -1,0 +1,880 @@
+function DetailModal({ 
+  item, 
+  isOpen, 
+  onClose, 
+  onAdd,
+  onMarkWatched,
+  watchedEpisodes = [],
+  onMarkEpisodeWatched,
+  userProfile,
+  onToggleReminder,
+  reminders = []
+}: { 
+  item: any; 
+  isOpen: boolean; 
+  onClose: () => void; 
+  onAdd: (item: any, type?: string) => void;
+  onMarkWatched: (item: any) => void;
+  watchedEpisodes?: number[];
+  onMarkEpisodeWatched?: (item: any, ep: number) => void;
+  userProfile?: UserProfile;
+  onToggleReminder?: (item: any) => void;
+  reminders?: any[];
+}) {
+  const [details, setDetails] = useState<any>(null);
+  const [omdbRatings, setOmdbRatings] = useState<OMDbRatings | null>(null);
+  const [aiVerdict, setAiVerdict] = useState<AIVerdict | null>(null);
+  const [storyDNA, setStoryDNA] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isVerdictLoading, setIsVerdictLoading] = useState(false);
+  const [userCountry, setUserCountry] = useState<string>('US');
+
+  const { watchlistItems, updateItemRating } = useWatchlist();
+  const watchlistItem = item ? watchlistItems.find(i => i.externalId === (item.id || item.mal_id)) : null;
+
+  useEffect(() => {
+    if (isOpen && item) {
+       applyGenreTheme(item);
+    } else {
+       applyGenreTheme(null);
+    }
+  }, [isOpen, item]);
+
+  useEffect(() => {
+    try {
+      const locale = navigator.language;
+      const country = locale.split('-')[1] || locale.toUpperCase();
+      if (country && country.length === 2) {
+        setUserCountry(country);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && item) {
+      const fetchDetails = async () => {
+        setIsLoading(true);
+        setAiVerdict(null);
+        setStoryDNA([]);
+        try {
+          let data;
+          let providers = null;
+          let translations = null;
+          
+          if (item.media_type === 'anime' || (typeof item.id === 'string' && item.id.startsWith('jikan_'))) {
+            const jikanId = typeof item.id === 'string' ? parseInt(item.id.replace('jikan_', '')) : item.id;
+            data = await jikanService.getAnimeDetails(jikanId);
+            // Jikan doesn't have watch providers directly in the same way, we could mock or skip
+          } else {
+            const type = item.media_type || (item.title ? 'movie' : 'tv');
+            data = await tmdbService.getDetails(item.id, type);
+            providers = await tmdbService.getWatchProviders(item.id, type);
+            translations = await tmdbService.getTranslations(item.id, type);
+          }
+          
+          const countryProviders = providers?.[userCountry] || providers?.['US'];
+
+          setDetails({ 
+            ...data, 
+            providers: countryProviders?.flatrate || [],
+            rentProviders: countryProviders?.rent || [],
+            buyProviders: countryProviders?.buy || [],
+            providerLink: countryProviders?.link,
+            translations: translations || [],
+            providerCountry: providers?.[userCountry] ? userCountry : (providers?.['US'] ? 'US' : null)
+          });
+
+          // Fetch Story DNA Offline
+          if (item.media_type === 'anime' || (typeof item.id === 'string' && item.id.startsWith('jikan_'))) {
+            const themes = (data?.themes || []).map((t: any) => t.name);
+            const demogs = (data?.demographics || []).map((d: any) => d.name);
+            const combined = [...themes, ...demogs].slice(0, 5);
+            setStoryDNA(combined.length > 0 ? combined : (data?.genres?.map((g: any) => g.name).slice(0, 3) || []));
+          } else {
+            const rawKeywords = data?.keywords?.keywords || data?.keywords?.results || [];
+            if (Array.isArray(rawKeywords)) {
+               setStoryDNA(rawKeywords.slice(0, 5).map((k: any) => k.name).filter(Boolean));
+            } else {
+               setStoryDNA([]);
+            }
+          }
+
+          // Fetch OMDb Ratings if imdb_id is available
+          const imdbId = data?.imdb_id || data?.external_ids?.imdb_id;
+          let ratings = null;
+          if (imdbId) {
+            ratings = await omdbService.getRatings(imdbId);
+            setOmdbRatings(ratings);
+          } else {
+            setOmdbRatings(null);
+          }
+
+          // Fetch AI Verdict
+          setIsVerdictLoading(true);
+          const profile = userProfile || profileService.getProfile();
+          const verdict = await aiService.getVerdictAndSummary(item, data, ratings?.watchScore || null, profile);
+          setAiVerdict(verdict);
+          setIsVerdictLoading(false);
+
+        } catch (error) {
+          console.error('Detail fetch error:', error);
+          setIsVerdictLoading(false);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      fetchDetails();
+    } else {
+      setDetails(null);
+      setOmdbRatings(null);
+      setAiVerdict(null);
+      setStoryDNA([]);
+    }
+  }, [isOpen, item]);
+
+  if (!item) return null;
+
+  const getAgeRating = () => {
+    if (!details) return null;
+    if (item.media_type === 'movie' || item.title) {
+      const usRelease = details.release_dates?.results?.find((r: any) => r.iso_3166_1 === 'US');
+      if (usRelease && usRelease.release_dates.length > 0) {
+        // Find the first non-empty certification
+        const cert = usRelease.release_dates.find((d: any) => d.certification)?.certification;
+        return cert || null;
+      }
+    } else {
+      const usRating = details.content_ratings?.results?.find((r: any) => r.iso_3166_1 === 'US');
+      if (usRating) {
+        return usRating.rating || null;
+      }
+    }
+    return null;
+  };
+
+  const ageRating = getAgeRating();
+
+  const getSuitability = () => {
+    if (!ageRating) return null;
+    const kidsRatings = ['G', 'PG', 'TV-Y', 'TV-Y7', 'TV-G', 'TV-PG'];
+    const teensRatings = ['PG-13', 'TV-14'];
+    const adultsRatings = ['R', 'NC-17', 'TV-MA'];
+
+    if (kidsRatings.includes(ageRating)) return { label: 'Kids (7+)', icon: '👶', color: 'text-green-400', bg: 'bg-green-500/10' };
+    if (teensRatings.includes(ageRating)) return { label: 'Teens (13+)', icon: '👦', color: 'text-yellow-400', bg: 'bg-yellow-500/10' };
+    if (adultsRatings.includes(ageRating)) return { label: 'Adults (18+)', icon: '🔞', color: 'text-red-400', bg: 'bg-red-500/10' };
+    return null;
+  };
+
+  const suitability = getSuitability();
+
+  return (
+    <AnimatePresence>
+      {isOpen && item && (
+        <motion.div 
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 50 }}
+          transition={{ duration: 0.4, cubicBezier: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 z-50 overflow-y-auto bg-surface-bg font-sans"
+        >
+          <div className="relative h-[65vh] min-h-[500px] w-full bg-surface-bg">
+            <img 
+              src={item.backdrop_path ? (item.backdrop_path.startsWith('http') ? item.backdrop_path : `https://image.tmdb.org/t/p/original${item.backdrop_path}`) : (item.poster_path ? (item.poster_path.startsWith('http') ? item.poster_path : `https://image.tmdb.org/t/p/original${item.poster_path}`) : 'https://images.unsplash.com/photo-1578632738980-43318b5c9440?q=80&w=1000&auto=format&fit=crop')} 
+              className="w-full h-full object-cover transition-transform duration-[10s] brightness-[0.6]"
+              referrerPolicy="no-referrer"
+              alt={item.title || item.name}
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1578632738980-43318b5c9440?q=80&w=1000&auto=format&fit=crop';
+              }}
+            />
+            <div className="absolute inset-0 cinematic-scrim" />
+            <div className="absolute inset-x-0 bottom-0 h-96 bg-gradient-to-t from-surface-bg via-surface-bg/40 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-r from-surface-bg/90 via-surface-bg/20 to-transparent" />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="fixed top-6 right-8 rounded-md bg-black/40 backdrop-blur-xl hover:bg-black/60 text-white border border-border z-[60] shadow-2xl"
+              onClick={onClose}
+            >
+              <X className="w-8 h-8" />
+            </Button>
+          </div>
+
+          <div className="max-w-[1200px] mx-auto px-6 pb-20 -mt-32 relative z-10">
+            <div className="flex flex-col md:flex-row gap-10">
+              <div className="w-48 md:w-64 aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-border shrink-0 mx-auto md:mx-0 group">
+                <motion.img 
+                  layoutId={`poster-${item.id || item.mal_id}`}
+                  src={item.poster_path?.startsWith('http') ? item.poster_path : `https://image.tmdb.org/t/p/w500${item.poster_path}`} 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                  referrerPolicy="no-referrer"
+                  alt={item.title || item.name}
+                />
+              </div>
+              <div className="flex-1 space-y-8">
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Badge className="bg-primary text-black font-black px-3 py-1 amber-glow">
+                      {item.vote_average?.toFixed(1)} ★
+                    </Badge>
+                    <Badge variant="outline" className="uppercase border-white/20 text-white bg-white/5 backdrop-blur-md">
+                      {item.media_type || (item.title ? 'movie' : 'tv')}
+                    </Badge>
+                    {ageRating && (
+                      <Badge variant="outline" className="uppercase border-white/20 text-white bg-white/5 backdrop-blur-md font-bold">
+                        {ageRating}
+                      </Badge>
+                    )}
+                    {details?.status && (
+                      <Badge variant="outline" className="uppercase border-white/20 text-zinc-300 bg-white/5 backdrop-blur-md">
+                        {details.status}
+                      </Badge>
+                    )}
+                    {item.platforms?.map((p: string) => (
+                      <Badge key={p} variant="outline" className="uppercase border-primary/30 text-primary bg-primary/10 backdrop-blur-md font-black">
+                        Watch on: {p}
+                      </Badge>
+                    ))}
+                  </div>
+                  <h2 className="text-4xl md:text-7xl font-black tracking-tighter leading-none font-display uppercase text-white">{item.title || item.name}</h2>
+                  {storyDNA.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary/60 font-display">Story DNA</p>
+                      <StoryDNA themes={storyDNA} />
+                    </div>
+                  )}
+                  {details?.tagline && (
+                    <p className="text-xl md:text-2xl text-muted-foreground italic font-medium">{details.tagline}</p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="w-4 h-4" />
+                      {(item.release_date || item.first_air_date)?.split('-')[0]}
+                    </span>
+                    {details?.original_language && (
+                      <span className="uppercase bg-white/5 px-2 py-0.5 rounded border border-border">{details.original_language}</span>
+                    )}
+                    {details?.runtime > 0 && (
+                      <span>{Math.floor(details.runtime / 60)}h {details.runtime % 60}m</span>
+                    )}
+                    {details?.number_of_seasons && (
+                      <span>{details.number_of_seasons} Season{details.number_of_seasons > 1 ? 's' : ''}</span>
+                    )}
+                    {details?.number_of_episodes && (
+                      <span>{details.number_of_episodes} Episodes</span>
+                    )}
+                    <span className="flex items-center gap-1.5" title="Popularity Score">
+                      <Sparkles className="w-4 h-4 text-primary" />
+                      {Math.round(details?.popularity || item.popularity || 0)}
+                    </span>
+                    <span className="flex items-center gap-1.5" title="Vote Count">
+                      <Users className="w-4 h-4" />
+                      {(details?.vote_count || item.vote_count || 0).toLocaleString()}
+                    </span>
+                  </div>
+                  
+                  {suitability && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em]">Suitable For:</span>
+                      <Badge className={`${suitability.bg} ${suitability.color} border-none font-bold px-3 py-1 text-sm`}>
+                        <span className="mr-1.5">{suitability.icon}</span> {suitability.label}
+                      </Badge>
+                    </div>
+                  )}
+                  
+                  <div className="flex flex-wrap items-center gap-4 py-2">
+                     {details?.videos?.results?.find((v: any) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser' || v.type === 'Clip')) && (
+                        <Button 
+                          onClick={() => window.open(`https://www.youtube.com/watch?v=${details.videos.results.find((v: any) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser' || v.type === 'Clip'))?.key}`, '_blank')}
+                          className="bg-primary text-black hover:bg-primary/80 font-black uppercase tracking-widest px-10 group shadow-2xl amber-glow h-14 rounded-xl font-display"
+                        >
+                           <Play className="w-5 h-5 mr-3 fill-black group-hover:scale-125 transition-transform" />
+                           Play Trailer
+                        </Button>
+                     )}
+                     <Button 
+                        onClick={() => onAdd(item, item.media_type || (item.title ? 'movie' : 'tv'))}
+                        variant="outline" 
+                        className="font-black uppercase tracking-widest px-10 border-border hover:bg-white/5 bg-white/5 backdrop-blur-md h-14 rounded-xl font-display"
+                     >
+                        <Plus className="w-5 h-5 mr-3" />
+                        Add to Watchlist
+                     </Button>
+                     {watchlistItem?.status === 'completed' && (
+                        <div className="bg-white/5 border border-border px-6 h-14 rounded-xl flex items-center gap-3 backdrop-blur-md">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your Rating</span>
+                          <StarRating 
+                            rating={watchlistItem.rating || 0} 
+                            max={5} 
+                            onRatingChange={(newRating) => updateItemRating(watchlistItem.id, newRating)} 
+                          />
+                        </div>
+                     )}
+                  </div>
+                </div>
+
+                 {isVerdictLoading ? (
+                    <div className="space-y-3 animate-pulse glass-panel p-8 rounded-3xl">
+                       <div className="h-5 bg-muted rounded w-1/4"></div>
+                       <div className="h-4 bg-muted rounded w-full"></div>
+                       <div className="h-4 bg-muted rounded w-5/6"></div>
+                    </div>
+                 ) : aiVerdict?.summary && (
+                    <div className="bg-primary/5 border border-primary/20 rounded-3xl p-8 relative overflow-hidden group glass-panel">
+                      <div className="absolute top-0 right-0 p-6 opacity-30 group-hover:opacity-60 transition-opacity">
+                         <Sparkles className="w-12 h-12 text-primary" />
+                      </div>
+                      <h4 className="text-xs font-black text-primary uppercase tracking-[0.3em] mb-4 flex items-center gap-2 font-display">
+                        <Sparkles className="w-4 h-4" /> AI Plot Insight
+                      </h4>
+                      <p className="text-zinc-200 leading-relaxed text-xl font-medium max-w-4xl selection:bg-primary/40">
+                        {aiVerdict.summary}
+                      </p>
+                    </div>
+                 )}
+                
+                {!isVerdictLoading && !aiVerdict?.summary && (
+                   <p className="text-zinc-300 leading-relaxed text-lg font-medium max-w-3xl">
+                     {item.overview}
+                   </p>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                  <div className="lg:col-span-2 space-y-8">
+                    {/* Episodes Section */}
+                    {(item.media_type === 'tv' || item.media_type === 'anime' || (details?.number_of_seasons)) && (
+                      <div className="space-y-4">
+                        <h3 className="text-xl font-black tracking-tighter flex items-center gap-2">
+                          <ListOrdered className="w-5 h-5 text-primary" /> Episodes & Seasons
+                        </h3>
+                        <EpisodeList 
+                          itemId={item.id.toString().startsWith('jikan_') ? parseInt(item.id.replace('jikan_', '')) : item.id} 
+                          type={item.media_type === 'anime' || item.id.toString().startsWith('jikan_') ? 'anime' : 'tv'}
+                          watchedEpisodes={watchedEpisodes}
+                          onMarkWatched={(ep) => onMarkEpisodeWatched?.(item, ep)}
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                      {details?.genres?.map((g: any) => (
+                        <Badge key={g.id} variant="secondary" className="bg-white/5 hover:bg-white/10 text-zinc-300 border border-border px-3 py-1">
+                          {g.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-8">
+                    <WatchOrderGuide title={item.title || item.name} />
+                    
+                    {details?.credits?.cast && (
+                      <div className="space-y-4">
+                        <h3 className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em]">Top Cast</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                          {details.credits.cast.slice(0, 4).map((person: any) => (
+                            <div key={person.id} className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full overflow-hidden bg-muted shrink-0 border border-border">
+                                {person.profile_path ? (
+                                  <img src={`https://image.tmdb.org/t/p/w185${person.profile_path}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt={person.name} />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-zinc-600">?</div>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-bold text-white truncate">{person.name}</p>
+                                <p className="text-[9px] text-muted-foreground truncate">{person.character}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              {omdbRatings && (
+                <div className="pt-4 border-t border-border">
+                  <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Unified Score</p>
+                  
+                  <div className="flex items-center gap-4 bg-white/5 p-4 rounded-xl border border-border w-max">
+                    <div className="flex flex-col border-r border-border pr-6 mr-2">
+                       <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">{getRatingBadge(getFinalRating({ imdb: omdbRatings.imdb, rotten: omdbRatings.rottenTomatoes, tmdb: details?.vote_average }))}</span>
+                       <span className="text-3xl font-black text-[#00ffcc] drop-shadow-[0_0_12px_rgba(0,255,204,0.6)]">
+                         ⭐ {getFinalRating({ imdb: omdbRatings.imdb, rotten: omdbRatings.rottenTomatoes, tmdb: details?.vote_average })}
+                       </span>
+                    </div>
+                    
+                    <div className="flex flex-col gap-2">
+                      {omdbRatings.imdb !== undefined && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="w-16 font-black text-muted-foreground uppercase tracking-wider">IMDb</span>
+                          <span className="font-bold text-white flex items-center gap-1"><Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" /> {omdbRatings.imdb.toFixed(1)}</span>
+                        </div>
+                      )}
+                      {omdbRatings.rottenTomatoes !== undefined && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="w-16 font-black text-muted-foreground uppercase tracking-wider">Rotten</span>
+                          <span className="font-bold text-white flex items-center gap-1"><span className="text-red-500">🍅</span> {omdbRatings.rottenTomatoes.toFixed(0)}%</span>
+                        </div>
+                      )}
+                      {details?.vote_average ? (
+                        <div className="flex items-center gap-2 text-xs">
+                           <span className="w-16 font-black text-muted-foreground uppercase tracking-wider">TMDb</span>
+                           <span className="font-bold text-white flex items-center gap-1"><span className="text-blue-500">TM</span> {details.vote_average.toFixed(1)}</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground font-medium italic mt-3">Weighted rating: IMDb (50%), Rotten Tomatoes (30%), TMDb (20%)</p>
+                </div>
+              )}
+
+              {isVerdictLoading ? (
+                <div className="pt-4 border-t border-border animate-pulse">
+                  <div className="h-4 w-32 bg-white/10 rounded mb-4"></div>
+                  <div className="h-24 w-full bg-white/5 rounded-xl border border-border"></div>
+                </div>
+              ) : aiVerdict ? (
+                <div className="pt-4 border-t border-border">
+                  <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-primary" /> AI Verdict
+                  </p>
+                  <div className={`p-5 rounded-2xl border ${
+                    aiVerdict.verdict === 'Must Watch' ? 'bg-green-500/10 border-green-500/30' :
+                    aiVerdict.verdict === 'Worth Watching' ? 'bg-blue-500/10 border-blue-500/30' :
+                    aiVerdict.verdict === 'Depends on Taste' ? 'bg-yellow-500/10 border-yellow-500/30' :
+                    'bg-red-500/10 border-red-500/30'
+                  }`}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">
+                        {aiVerdict.verdict === 'Must Watch' ? '🔥' :
+                         aiVerdict.verdict === 'Worth Watching' ? '👍' :
+                         aiVerdict.verdict === 'Depends on Taste' ? '🤔' : '❌'}
+                      </span>
+                      <h4 className={`text-xl font-black ${
+                        aiVerdict.verdict === 'Must Watch' ? 'text-green-400' :
+                        aiVerdict.verdict === 'Worth Watching' ? 'text-blue-400' :
+                        aiVerdict.verdict === 'Depends on Taste' ? 'text-yellow-400' :
+                        'text-red-400'
+                      }`}>{aiVerdict.verdict}</h4>
+                    </div>
+                    <p className="text-zinc-300 font-medium mb-4">{aiVerdict.reason}</p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div className="bg-white/5 rounded-xl p-4 border border-border">
+                        <h5 className="text-sm font-bold text-green-400 mb-2 flex items-center gap-2">👍 Pros</h5>
+                        <ul className="space-y-1">
+                          {aiVerdict.pros.map((pro, i) => (
+                            <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
+                              <span className="text-green-500 mt-0.5">•</span> {pro}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="bg-white/5 rounded-xl p-4 border border-border">
+                        <h5 className="text-sm font-bold text-red-400 mb-2 flex items-center gap-2">👎 Cons</h5>
+                        <ul className="space-y-1">
+                          {aiVerdict.cons.map((con, i) => (
+                            <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
+                              <span className="text-red-500 mt-0.5">•</span> {con}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    
+                    {aiVerdict.targetAudience && aiVerdict.targetAudience.length > 0 && (
+                      <div className="mb-4">
+                        <h5 className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-2">👥 Works Best For</h5>
+                        <div className="flex flex-wrap gap-2">
+                          {aiVerdict.targetAudience.map((audience, i) => (
+                            <Badge key={i} variant="outline" className="bg-white/5 border-border text-zinc-300">
+                              {audience}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {aiVerdict.whyWatch && (
+                      <div className="mb-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 shadow-[0_0_20px_rgba(16,185,129,0.1)]">
+                        <h5 className="text-xs font-black text-emerald-400 uppercase tracking-[0.2em] mb-1 flex items-center gap-2">
+                          <Sparkles className="w-3 h-3" /> Personalized For You
+                        </h5>
+                        <p className="text-sm text-zinc-200 font-medium">{aiVerdict.whyWatch}</p>
+                      </div>
+                    )}
+                    
+                    <p className="text-sm text-muted-foreground italic border-t border-border pt-3">
+                      "{aiVerdict.summary}"
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {details?.credits?.cast?.length > 0 && (
+                <div className="pt-4">
+                  <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Top Cast</p>
+                  <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+                    {details.credits.cast.slice(0, 12).map((actor: any) => (
+                      <div key={actor.id} className="flex items-center gap-3 bg-white/5 pr-4 rounded-md border border-border shrink-0">
+                        {actor.profile_path ? (
+                          <img src={`https://image.tmdb.org/t/p/w185${actor.profile_path}`} className="w-10 h-10 rounded-full object-cover" alt={actor.name} />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-xs font-bold">{actor.name.charAt(0)}</div>
+                        )}
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-zinc-200 leading-tight">{actor.name}</span>
+                          <span className="text-[10px] text-muted-foreground font-medium leading-tight">{actor.character}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(details?.credits?.crew?.length > 0 || details?.production_companies?.length > 0) && (
+                <div className="pt-4 flex flex-wrap gap-8">
+                  {(() => {
+                    const director = details?.credits?.crew?.find((c: any) => c.job === 'Director');
+                    const writer = details?.credits?.crew?.find((c: any) => c.department === 'Writing');
+                    return (
+                      <>
+                        {director && (
+                          <div>
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Director</p>
+                            <p className="text-sm font-bold text-zinc-300">{director.name}</p>
+                          </div>
+                        )}
+                        {writer && (
+                          <div>
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Writer</p>
+                            <p className="text-sm font-bold text-zinc-300">{writer.name}</p>
+                          </div>
+                        )}
+                        {details?.production_companies?.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">Studio</p>
+                            <p className="text-sm font-bold text-zinc-300">
+                              {details.production_companies.slice(0, 2).map((c: any) => c.name).join(', ')}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-4 pt-6">
+                {(() => {
+                  const releaseDate = item?.release_date || item?.first_air_date;
+                  const isUpcoming = releaseDate && new Date(releaseDate) > new Date();
+                  const isReminded = reminders.some(r => r.externalId === item?.id);
+
+                  if (isUpcoming) {
+                    return (
+                      <Button 
+                        variant={isReminded ? "default" : "outline"}
+                        className={`font-black h-14 px-8 rounded-2xl transition-all hover:scale-105 active:scale-95 ${
+                          isReminded ? 'bg-primary text-black border-amber-500' : 'border-amber-500/50 text-primary hover:bg-primary/10'
+                        }`}
+                        onClick={() => onToggleReminder?.(item)}
+                      >
+                        <Bell className={`w-6 h-6 mr-2 ${isReminded ? 'fill-current' : ''}`} />
+                        {isReminded ? 'Reminder Set' : 'Remind Me'}
+                      </Button>
+                    );
+                  }
+
+                  return (
+                    <>
+                      {watchlistItem ? (
+                        <div className="flex items-center gap-2 p-2 bg-white/5 rounded-2xl border border-border">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                              key={star}
+                              onClick={() => {
+                                updateItemRating(watchlistItem.id, star);
+                                profileService.updateInteraction(item, 'like');
+                              }}
+                              className="p-2 transition-transform hover:scale-125 focus:outline-none"
+                            >
+                              <Star className={`w-8 h-8 ${
+                                (watchlistItem.rating || 0) >= star 
+                                  ? 'fill-brand-amber text-brand-amber drop-shadow-[0_0_10px_rgba(255,191,0,0.5)]' 
+                                  : 'text-zinc-600'
+                              }`} />
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <Button 
+                        className="bg-gradient-to-r from-brand-amber to-amber-600 hover:from-amber-400 hover:to-brand-amber text-primary-foreground font-black h-14 px-10 rounded-2xl shadow-2xl shadow-primary/20 transition-all hover:scale-105 active:scale-95"
+                        onClick={() => {
+                          onAdd(item);
+                          onClose();
+                        }}
+                      >
+                        <Plus className="w-6 h-6 mr-2" /> {watchlistItem ? 'Update Watchlist' : 'Add to Watchlist'}
+                      </Button>
+                      {!watchlistItem || watchlistItem.status !== 'completed' ? (
+                        <Button 
+                          variant="outline"
+                          className="border-white/20 hover:bg-white/10 text-white font-black h-14 px-8 rounded-2xl transition-all hover:scale-105 active:scale-95"
+                          onClick={() => {
+                            onMarkWatched(item);
+                            onClose();
+                          }}
+                        >
+                          <CheckCircle2 className="w-6 h-6 mr-2" /> Mark as Watched
+                        </Button>
+                      ) : null}
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="outline"
+                          size="icon"
+                          className="w-14 h-14 rounded-2xl border-white/20 hover:bg-green-500/20 hover:text-green-500 transition-all"
+                          onClick={() => {
+                            profileService.updateInteraction(item, 'like');
+                            // Refresh AI verdict to show immediate impact if possible, 
+                            // but fetching again might be too slow. For now, simple feedback.
+                          }}
+                          title="I love this genre/style"
+                        >
+                          <ThumbsUp className="w-6 h-6" />
+                        </Button>
+                        <Button 
+                          variant="outline"
+                          size="icon"
+                          className="w-14 h-14 rounded-2xl border-white/20 hover:bg-red-500/20 hover:text-red-500 transition-all"
+                          onClick={() => {
+                            profileService.updateInteraction(item, 'dislike');
+                          }}
+                          title="Not for me"
+                        >
+                          <ThumbsDown className="w-6 h-6" />
+                        </Button>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Language Info Section */}
+              <div className="pt-8 space-y-4 border-t border-border">
+                <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em]">🌍 Language Info</p>
+                <div className="bg-white/5 rounded-2xl p-5 border border-border space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">🎤</span>
+                    <div>
+                      <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest leading-none mb-1">Original</p>
+                      <p className="text-sm font-bold text-zinc-200">
+                        {new Intl.DisplayNames(['en'], { type: 'language' }).of(details?.original_language || 'en')}
+                      </p>
+                    </div>
+                  </div>
+                   {details?.translations && details.translations.length > 0 && (
+                    <>
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl mt-1">🔊</span>
+                        <div>
+                          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest leading-none mb-1">Audio (Dubbed)</p>
+                          <p className="text-sm font-medium text-zinc-300">
+                            {details.translations.slice(0, 5).map((t: any) => t.english_name || t.name).join(', ')}
+                            {details.translations.length > 5 ? ` +${details.translations.length - 5} more` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl mt-1">💬</span>
+                        <div>
+                          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest leading-none mb-1">Subtitles</p>
+                          <p className="text-sm font-medium text-zinc-300">
+                            {details.translations.slice(0, 8).map((t: any) => t.english_name || t.name).join(', ')}
+                            {details.translations.length > 8 ? ` +${details.translations.length - 8} more` : ''}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {(!details?.translations || details.translations.length === 0) && (
+                    <p className="text-sm font-medium text-muted-foreground italic pl-8">Original language only</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Watch Providers Section */}
+              <div className="pt-8 space-y-4 border-t border-border">
+                <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em]">📺 Where to Watch ({details?.providerCountry || 'US'})</p>
+                {(!details?.providers?.length && !details?.rentProviders?.length && !details?.buyProviders?.length) ? (
+                  <div className="bg-white/5 rounded-2xl p-6 border border-border text-center">
+                    <p className="text-sm font-bold text-muted-foreground">Not available in your region</p>
+                    <p className="text-xs text-muted-foreground mt-1">Try checking other regions or platforms.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6 bg-white/5 rounded-2xl p-5 border border-border">
+                    {details?.providers && details.providers.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
+                          <span className="text-green-400">🔥</span> Streaming
+                        </p>
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                          {details.providers.map((p: any) => (
+                            <div key={p.provider_id} className="group relative shrink-0">
+                              <img 
+                                src={`https://image.tmdb.org/t/p/original${p.logo_path}`} 
+                                className="w-12 h-12 rounded-xl border border-border shadow-lg transition-transform group-hover:scale-110"
+                                alt={p.provider_name}
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-black/90 backdrop-blur-md text-[10px] px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all whitespace-nowrap z-50 border border-border font-bold">
+                                {p.provider_name}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {details?.rentProviders && details.rentProviders.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
+                          <span className="text-yellow-400">💰</span> Rent
+                        </p>
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                          {details.rentProviders.map((p: any) => (
+                            <div key={p.provider_id} className="group relative shrink-0">
+                              <img 
+                                src={`https://image.tmdb.org/t/p/original${p.logo_path}`} 
+                                className="w-10 h-10 rounded-xl border border-border shadow-lg transition-transform group-hover:scale-110 opacity-80 group-hover:opacity-100"
+                                alt={p.provider_name}
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {details?.buyProviders && details.buyProviders.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
+                          <span className="text-blue-400">🛒</span> Buy
+                        </p>
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                          {details.buyProviders.map((p: any) => (
+                            <div key={p.provider_id} className="group relative shrink-0">
+                              <img 
+                                src={`https://image.tmdb.org/t/p/original${p.logo_path}`} 
+                                className="w-10 h-10 rounded-xl border border-border shadow-lg transition-transform group-hover:scale-110 opacity-80 group-hover:opacity-100"
+                                alt={p.provider_name}
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {details?.similar?.results && details.similar.results.length > 0 && (
+                <div className="pt-8 space-y-4 border-t border-border">
+                  <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em]">More Like This</p>
+                  <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+                    {details.similar.results.slice(0, 10).map((similarItem: any) => (
+                      <div 
+                        key={similarItem.id} 
+                        className="w-32 shrink-0 cursor-pointer group"
+                        onClick={() => {
+                          onClose();
+                          setTimeout(() => {
+                            window.dispatchEvent(new CustomEvent('open-detail-modal', { detail: { ...similarItem, media_type: item.media_type || similarItem.media_type } }));
+                          }, 300);
+                        }}
+                      >
+                        <div className="aspect-[2/3] rounded-xl overflow-hidden mb-2 relative">
+                          {similarItem.poster_path ? (
+                            <img 
+                              src={`https://image.tmdb.org/t/p/w185${similarItem.poster_path}`} 
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
+                              alt={similarItem.title || similarItem.name} 
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-muted flex items-center justify-center">
+                              <Film className="w-8 h-8 text-zinc-600" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <PlayCircle className="w-8 h-8 text-white" />
+                          </div>
+                        </div>
+                        <p className="text-xs font-bold text-zinc-300 truncate">{similarItem.title || similarItem.name}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {details?.recommendations?.results && details.recommendations.results.length > 0 && (
+                <div className="pt-8 space-y-4 border-t border-border">
+                  <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em]">Recommended</p>
+                  <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+                    {details.recommendations.results.slice(0, 10).map((recItem: any) => (
+                      <div 
+                        key={recItem.id} 
+                        className="w-32 shrink-0 cursor-pointer group"
+                        onClick={() => {
+                          onClose();
+                          setTimeout(() => {
+                            window.dispatchEvent(new CustomEvent('open-detail-modal', { detail: { ...recItem, media_type: item.media_type || recItem.media_type } }));
+                          }, 300);
+                        }}
+                      >
+                        <div className="aspect-[2/3] rounded-xl overflow-hidden mb-2 relative">
+                          {recItem.poster_path ? (
+                            <img 
+                              src={`https://image.tmdb.org/t/p/w185${recItem.poster_path}`} 
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
+                              alt={recItem.title || recItem.name} 
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-muted flex items-center justify-center">
+                              <Film className="w-8 h-8 text-zinc-600" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <PlayCircle className="w-8 h-8 text-white" />
+                          </div>
+                        </div>
+                        <p className="text-xs font-bold text-zinc-300 truncate">{recItem.title || recItem.name}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <UserReviewsSection mediaId={item.id} />
+              
+              <SimilarContent 
+                itemId={item.id.toString().startsWith('jikan_') ? parseInt(item.id.replace('jikan_', '')) : item.id} 
+                type={item.id.toString().startsWith('jikan_') || item.media_type === 'anime' ? 'anime' : (item.media_type === 'movie' || (item.title && !item.name) ? 'movie' : 'tv')} 
+                onSelect={(new_item) => {
+                 onClose();
+                 setTimeout(() => onAdd(new_item), 100);
+              }} />
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+);
+}

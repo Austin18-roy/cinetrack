@@ -42,9 +42,9 @@ export const profileService = {
       console.error("Error saving profile", e);
     }
   },
-  updateInteraction: (item: any, action: 'like' | 'skip' | 'click') => {
+  updateInteraction: (item: any, action: 'like' | 'skip' | 'click' | 'dislike') => {
     const profile = profileService.getProfile();
-    const weight = action === 'like' ? 3 : action === 'click' ? 1 : -2;
+    const weight = action === 'like' ? 5 : action === 'click' ? 1 : action === 'dislike' ? -10 : -2;
     
     const isAnime = item.media_type === 'anime' || (typeof item.id === 'string' && item.id.startsWith('jikan_'));
 
@@ -87,6 +87,12 @@ export const profileService = {
       }
     }
     
+    // Simple decay: occasionally reduce absolute weights
+    if (Math.random() < 0.1) {
+        Object.keys(profile.genres).forEach(g => profile.genres[Number(g)] *= 0.99);
+        Object.keys(profile.languages).forEach(l => profile.languages[l] *= 0.99);
+    }
+
     profileService.saveProfile(profile);
   },
   markSeen: (items: any[]) => {

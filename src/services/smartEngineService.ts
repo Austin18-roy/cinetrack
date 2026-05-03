@@ -1,3 +1,5 @@
+import { profileService } from "./profileService";
+
 export const GENRE_MAP: Record<number, string> = {
   28: "Action",
   12: "Adventure",
@@ -54,10 +56,10 @@ export function buildHabitProfile(history: any[]) {
 
   history.forEach(item => {
     // Determine the time it was interacted with
-    const timestamp = item.lastWatchedAt?.toMillis ? item.lastWatchedAt.toMillis() 
-                    : item.updatedAt?.toMillis ? item.updatedAt.toMillis() 
-                    : item.createdAt?.toMillis ? item.createdAt.toMillis() 
-                    : null;
+    const timestamp = (item.lastWatchedAt?.toMillis?.()) || 
+                    (item.updatedAt?.toMillis?.()) || 
+                    (item.createdAt?.toMillis?.()) || 
+                    null;
     
     if (timestamp) {
       const hour = new Date(timestamp).getHours();
@@ -79,57 +81,89 @@ export function buildHabitProfile(history: any[]) {
   return profile;
 }
 
-export function getContextAwareRecommendations(allContent: any[], profile: any, historyIds: string[]) {
+export function getContextAwareRecommendations(allContent: any[], habitProfile: any, historyIds: string[]) {
   const currentHour = new Date().getHours();
   const currentSlot = getTimeSlot(currentHour);
+  const explicitProfile = profileService.getProfile();
 
   return allContent
     .filter(item => !historyIds.includes(String(item.id)) && !historyIds.includes(String(item.externalId)))
     .map(item => {
       let score = 0;
+      const reasons: string[] = [];
 
-      // Time match (If they watch a lot during this time slot globally, boost items that match those genres/types)
-      if (profile.timePreference[currentSlot]) score += (profile.timePreference[currentSlot] * 0.5);
-
-      // Genre match
-      if (item.genre_ids && Array.isArray(item.genre_ids)) {
-        item.genre_ids.forEach((g: number) => {
-          if (profile.genrePreference[g]) score += profile.genrePreference[g];
-        });
+      // 1. Time match (Habitual matching)
+      if (habitProfile.timePreference[currentSlot]) {
+        const timeWeight = (habitProfile.timePreference[currentSlot] * 1.5);
+        score += timeWeight;
+        if (timeWeight > 5) reasons.push(`Fits your ${currentSlot} watching habit`);
       }
 
-      // Type match 
+      // 2. Genre match (Combined Habit + Explicit Likes/Dislikes)
+      if (item.genre_ids && Array.isArray(item.genre_ids)) {
+        let genreScore = 0;
+        const topMatchedGenres: string[] = [];
+
+        item.genre_ids.forEach((g: number) => {
+          const habitWeight = habitProfile.genrePreference[g] || 0;
+          const explicitWeight = explicitProfile.genres[g] || 0;
+          
+          const totalGenreWeight = habitWeight + explicitWeight;
+          genreScore += totalGenreWeight;
+          
+          if (totalGenreWeight > 10) topMatchedGenres.push(GENRE_MAP[g]);
+        });
+        
+        score += genreScore;
+        if (topMatchedGenres.length > 0) {
+          reasons.push(`Matches your love for ${topMatchedGenres.slice(0, 2).join(' & ')}`);
+        }
+        
+        // Dynamic Penalty for Dislikes
+        if (genreScore < -10) {
+          score -= 40; // Strong burial for content in disliked domains
+        }
+      }
+
+      // 3. Type match (Movie vs TV preference)
       const itemType = item.media_type || (item.name ? 'tv' : 'movie');
-      if (profile.typePreference[itemType]) score += (profile.typePreference[itemType] * 0.8);
+      const habitTypeWeight = habitProfile.typePreference[itemType] || 0;
+      score += (habitTypeWeight * 1.2);
 
-      // Rating boost
-      if (item.vote_average) score += item.vote_average;
+      // 4. Quality & Popularity
+      if (item.vote_average) score += (item.vote_average * 2);
+      if (item.popularity) score += Math.log10(item.popularity + 1) * 2;
 
-      return { ...item, score, matchSlot: currentSlot };
+      // 5. Language Match
+      const explicitLangWeight = explicitProfile.languages[item.original_language] || 0;
+      score += (explicitLangWeight * 3);
+
+      return { ...item, score, matchSlot: currentSlot, dynamicReasons: reasons };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 15);
+    .slice(0, 24);
 }
 
 export function surpriseMeSmart(allContent: any[], profile: any, historyIds: string[]) {
   return allContent
-    .filter(item => item.vote_average >= 7 && !historyIds.includes(String(item.id)) && !historyIds.includes(String(item.externalId)))
+    .filter(item => item.vote_average >= 6.5 && !historyIds.includes(String(item.id)) && !historyIds.includes(String(item.externalId)))
     .map(item => {
       let diversityScore = 0;
 
-      // Penalize heavily watched genres, reward completely new ones
+      // Reward diversity: genres user HASN'T explored much
       if (item.genre_ids && Array.isArray(item.genre_ids)) {
         item.genre_ids.forEach((g: number) => {
-          if (!profile.genrePreference[g]) {
-            diversityScore += 5; // Strong boost for discovering new genres
-          } else {
-            diversityScore -= (profile.genrePreference[g] * 0.5); // Slight penalization
+          const pref = profile.genrePreference[g] || 0;
+          if (pref < 5) {
+             diversityScore += 10; // New frontiers
+          } else if (pref > 30) {
+             diversityScore -= 10; // Too familiar
           }
         });
       }
 
-      // Base quality
-      if (item.vote_average) diversityScore += (item.vote_average * 0.5);
+      // Base quality still matters for a good surprise
+      if (item.vote_average) diversityScore += item.vote_average;
 
       return { ...item, diversityScore };
     })
@@ -138,6 +172,11 @@ export function surpriseMeSmart(allContent: any[], profile: any, historyIds: str
 }
 
 export function generateReason(item: any, profile: any, currentSlot: string) {
+  // Use pre-calculated dynamic reasons if available, otherwise fallback to heuristics
+  if (item.dynamicReasons && item.dynamicReasons.length > 0) {
+    return item.dynamicReasons;
+  }
+
   const reasons: string[] = [];
   const userTopGenres = Object.entries(profile.genrePreference)
     .sort((a: any, b: any) => b[1] - a[1])
@@ -151,18 +190,18 @@ export function generateReason(item: any, profile: any, currentSlot: string) {
     }
   }
 
-  if (item.vote_average && item.vote_average >= 7.5) {
-    reasons.push("Highly rated");
+  if (item.vote_average && item.vote_average >= 8) {
+    reasons.push("Critically acclaimed");
+  } else if (item.vote_average && item.vote_average >= 7) {
+    reasons.push("Highly rated by others");
   }
 
-  // If user actually has a strong habit in this slot
-  if (profile.timePreference[currentSlot] && profile.timePreference[currentSlot] > 2) {
-    reasons.push(`Perfect for ${currentSlot.replace('-', ' ')}`);
+  if (item.popularity > 500) {
+    reasons.push("Trending globally");
   }
 
-  // Provide defaults if nothing hits
   if (reasons.length === 0) {
-    reasons.push("Trending right now");
+    reasons.push("Based on your viewing history");
   }
 
   return reasons;

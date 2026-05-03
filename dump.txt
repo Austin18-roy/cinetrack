@@ -1,0 +1,26 @@
+                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                                 {aiVerdict.pros && aiVerdict.pros.length > 0 && (
+                                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl">
+                                      <h4 className="text-emerald-400 font-bold uppercase tracking-widest text-[10px] mb-3 flex items-center gap-1"><Check className="w-3 h-3" /> What It Does Well</h4>
+                                      <ul className="space-y-2">
+                                        {aiVerdict.pros.map((pro, i) => (
+                                          <li key={i} className="text-zinc-300 text-sm flex gap-2">
+                                            <span className="text-emerald-500 mt-0.5">•</span> <span>{pro}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                 )}
+                                 {aiVerdict.cons && aiVerdict.cons.length > 0 && (
+                                    <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl">
+                                      <h4 className="text-red-400 font-bold uppercase tracking-widest text-[10px] mb-3 flex items-center gap-1"><X className="w-3 h-3" /> Where It Falls Short</h4>
+                                      <ul className="space-y-2">
+                                        {aiVerdict.cons.map((con, i) => (
+                                          <li key={i} className="text-zinc-300 text-sm flex gap-2">
+                                            <span className="text-red-500 mt-0.5">•</span> <span>{con}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                 )}
+                               </div>

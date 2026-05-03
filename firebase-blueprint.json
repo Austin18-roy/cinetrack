@@ -47,6 +47,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "externalId", "type", "title", "releaseDate", "createdAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User review for a media item",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "rating": { "type": "number" },
+        "text": { "type": "string" },
+        "helpful": { "type": "number" },
+        "type": { "type": "string", "enum": ["audience", "critic"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "rating", "text", "type", "createdAt"]
     }
   },
   "firestore": {
@@ -61,6 +76,10 @@
     "/reminders/{reminderId}": {
       "schema": "Reminder",
       "description": "User reminders for upcoming releases."
+    },
+    "/reviews/{contentId}/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Reviews for media items"
     }
   }
 }

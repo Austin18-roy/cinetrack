@@ -3,6 +3,7 @@ const BASE_URL = 'https://www.omdbapi.com/';
 
 export interface OMDbRatings {
   imdb?: number;
+  imdbVotes?: string;
   rottenTomatoes?: number;
   metacritic?: number;
   watchScore?: number;
@@ -11,6 +12,18 @@ export interface OMDbRatings {
 const cache = new Map<string, OMDbRatings>();
 
 export const omdbService = {
+  getSeasonEpisodes: async (imdbId: string, season: number) => {
+    if (!OMDB_API_KEY) return null;
+    try {
+      const response = await fetch(`${BASE_URL}?i=${imdbId}&Season=${season}&apikey=${OMDB_API_KEY}`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data.Episodes;
+    } catch (e) {
+      console.error("OMDb Fetch Error:", e);
+      return null;
+    }
+  },
   getRatings: async (imdbId: string): Promise<OMDbRatings | null> => {
     if (!OMDB_API_KEY) {
       console.warn('OMDb API key is missing.');
@@ -34,11 +47,17 @@ export const omdbService = {
       let totalScore = 0;
       let scoreCount = 0;
 
-      // Extract IMDb
+      // Extract IMDb and validate with votes
       if (data.imdbRating && data.imdbRating !== 'N/A') {
-        const imdb = parseFloat(data.imdbRating);
+        let imdb = parseFloat(data.imdbRating);
         if (!isNaN(imdb)) {
+          const numVotes = parseInt(data.imdbVotes?.replace(/,/g, "") || "0");
+          // Low votes -> unreliable, penalize by 0.5
+          if (numVotes < 500) {
+             imdb = Math.max(0, parseFloat((imdb - 0.5).toFixed(1)));
+          }
           ratings.imdb = imdb;
+          ratings.imdbVotes = data.imdbVotes;
           totalScore += imdb;
           scoreCount++;
         }
@@ -51,8 +70,8 @@ export const omdbService = {
             const rtStr = r.Value.replace('%', '');
             const rt = parseFloat(rtStr);
             if (!isNaN(rt)) {
-              ratings.rottenTomatoes = rt / 10; // normalize to 10
-              totalScore += ratings.rottenTomatoes;
+              ratings.rottenTomatoes = rt; // Keep as percentage
+              totalScore += (rt / 10);
               scoreCount++;
             }
           } else if (r.Source === 'Metacritic') {
@@ -73,8 +92,9 @@ export const omdbService = {
 
       cache.set(imdbId, ratings);
       return ratings;
-    } catch (error) {
-      console.error('OMDb Fetch Error:', error);
+    } catch (error: any) {
+      // OMDb typically fails with CORS or "Failed to fetch" if the API key is incorrect or blocked
+      console.warn('OMDb Fetch Warning: Failed to fetch ratings. Double check your VITE_OMDB_API_KEY if you want OMDb ratings.');
       return null;
     }
   }

@@ -2,44 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: users
-    // Document ID: userId (UID)
-    // Fields:
-    //   - email: string (required, email format)
-    //   - displayName: string (optional)
-    //   - photoURL: string (optional)
-    //   - createdAt: timestamp (required)
-    //
-    // Collection: mediaItems
-    // Document ID: auto-generated
-    // Fields:
-    //   - userId: string (required, matches owner UID)
-    //   - title: string (required, 1-200 chars)
-    //   - type: string (required, ['movie', 'series', 'anime'])
-    //   - status: string (required, ['plan-to-watch', 'watching', 'completed'])
-    //   - currentEpisode: number (optional, >= 0)
-    //   - totalEpisodes: number (optional, >= 0)
-    //   - rating: number (optional, 1-10)
-    //   - notes: string (optional, max 1000 chars)
-    //   - createdAt: timestamp (required)
-    //   - updatedAt: timestamp (required)
-    //
-    // Collection: reminders
-    // Document ID: auto-generated
-    // Fields:
-    //   - userId: string (required, matches owner UID)
-    //   - externalId: string or number (required)
-    //   - type: string (required)
-    //   - title: string (required)
-    //   - posterUrl: string (optional)
-    //   - releaseDate: string (required)
-    //   - createdAt: timestamp (required)
-    //
-    // ===============================================================
+    // Pillar 0: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
 
     // ===============================================================
     // Helper Functions
@@ -47,6 +13,10 @@ service cloud.firestore {
     
     function isAuthenticated() {
       return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isAuthenticated() && request.auth.token.email_verified == true;
     }
 
     function isOwner(userId) {
@@ -57,26 +27,28 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == resource.data.userId;
     }
 
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    function incoming() {
+      return request.resource.data;
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     // ===============================================================
-    // Domain Validators
+    // Validation Helpers
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['email', 'displayName', 'photoURL', 'createdAt']) &&
-             isValidEmail(data.email) &&
+      let allowedFields = ['email', 'displayName', 'photoURL', 'createdAt'];
+      return data.keys().hasOnly(allowedFields) &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
              data.createdAt is timestamp;
     }
 
     function isValidMediaItem(data) {
-      return hasOnlyAllowedFields(['userId', 'title', 'type', 'status', 'currentEpisode', 'totalEpisodes', 'rating', 'notes', 'posterUrl', 'externalId', 'source', 'createdAt', 'updatedAt', 'genreIds', 'watchedEpisodes', 'lastWatchedAt', 'trailer_key', 'seasons', 'hypeScore', 'recommendationReason']) &&
+      let allowedFields = ['userId', 'title', 'type', 'status', 'currentEpisode', 'totalEpisodes', 'rating', 'notes', 'posterUrl', 'externalId', 'source', 'createdAt', 'updatedAt', 'genreIds', 'watchedEpisodes', 'lastWatchedAt', 'trailer_key', 'seasons', 'hypeScore', 'recommendationReason'];
+      return data.keys().hasOnly(allowedFields) &&
              data.userId == request.auth.uid &&
              data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
              data.type in ['movie', 'series', 'anime'] &&
@@ -93,7 +65,8 @@ service cloud.firestore {
     }
 
     function isValidReminder(data) {
-      return hasOnlyAllowedFields(['userId', 'externalId', 'type', 'title', 'posterUrl', 'releaseDate', 'createdAt']) &&
+      let allowedFields = ['userId', 'externalId', 'type', 'title', 'posterUrl', 'releaseDate', 'createdAt'];
+      return data.keys().hasOnly(allowedFields) &&
              data.userId == request.auth.uid &&
              (data.externalId is string || data.externalId is number) &&
              data.type is string &&
@@ -102,27 +75,49 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidReview(data) {
+      let allowedFields = ['userId', 'username', 'rating', 'text', 'helpful', 'type', 'createdAt'];
+      return data.keys().hasAll(['userId', 'rating', 'text', 'type', 'createdAt']) &&
+             data.keys().hasOnly(allowedFields) &&
+             data.userId == request.auth.uid &&
+             (data.username is string || !('username' in data)) &&
+             data.rating is number && data.rating >= 1 && data.rating <= 10 &&
+             data.text is string && data.text.size() <= 2000 &&
+             (!('helpful' in data) || data.helpful is number) &&
+             data.type in ['audience', 'critic'] &&
+             data.createdAt is timestamp;
+    }
+
     // ===============================================================
-    // Rules
+    // Collection Rules
     // ===============================================================
 
     match /users/{userId} {
       allow read: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUser(request.resource.data);
-      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming());
     }
 
     match /mediaItems/{itemId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated() && isValidMediaItem(request.resource.data);
-      allow update: if isDocOwner() && isValidMediaItem(request.resource.data);
-      allow delete: if isDocOwner();
+      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidMediaItem(incoming());
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && isValidMediaItem(incoming()) && 
+                    incoming().userId == resource.data.userId; // Immutable owner
     }
 
     match /reminders/{reminderId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated() && isValidReminder(request.resource.data);
-      allow update: if isDocOwner() && isValidReminder(request.resource.data);
+      allow read, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidReminder(incoming());
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && isValidReminder(incoming());
+    }
+
+    match /reviews/{contentId}/reviews/{reviewId} {
+      allow read: if true; // Reviews are public
+      allow create: if isAuthenticated() && isValidId(contentId) && isValidId(reviewId) && isValidReview(incoming());
+      allow update: if isAuthenticated() && (
+        (isDocOwner() && isValidReview(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'text', 'type', 'updatedAt'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['helpful']) && incoming().helpful == existing().helpful + 1)
+      );
       allow delete: if isDocOwner();
     }
   }

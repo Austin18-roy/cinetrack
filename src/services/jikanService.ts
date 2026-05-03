@@ -13,25 +13,27 @@ async function fetchJikan(endpoint: string, params: Record<string, string> = {},
     try {
       await delay(500 + (1000 * i)); // Incremental delay
       const response = await fetch(url);
+      
       if (response.status === 429) {
-          console.warn('Jikan Rate Limit (429). Retrying...');
           continue;
       }
+      
       if (!response.ok) {
-        console.error('Jikan API Error:', response.status, response.statusText);
-        // Only return empty if it's the last retry
+        // Only return empty if it's the last retry or a fatal error
         if (i === retries - 1) return { data: [], pagination: { has_next_page: false, last_visible_page: 1 } };
         continue;
       }
-      return await response.json();
+      
+      const json = await response.json();
+      return json || { data: [], pagination: { has_next_page: false, last_visible_page: 1 } };
     } catch (error) {
-      console.warn(`Jikan Fetch failed attempt ${i + 1}`, error);
       if (i === retries - 1) {
-        console.error('Jikan Fetch Final Error:', error);
         return { data: [], pagination: { has_next_page: false, last_visible_page: 1 } };
       }
     }
   }
+  
+  return { data: [], pagination: { has_next_page: false, last_visible_page: 1 } };
 }
 
 function mapJikanToTMDB(anime: any): TMDBItem {
@@ -63,6 +65,7 @@ function mapJikanToTMDB(anime: any): TMDBItem {
     score: anime.score,
     status: anime.status,
     episodes: anime.episodes,
+    rating: anime.rating,
   };
 }
 
@@ -105,6 +108,17 @@ export const jikanService = {
     const data = await fetchJikan('/seasons/now', { page: page.toString() });
     return {
       results: (data.data || []).filter((a: any) => a.images?.webp?.image_url || a.images?.jpg?.image_url).map(mapJikanToTMDB),
+      totalPages: data.pagination?.last_visible_page || 1
+    };
+  },
+  discoverAnime: async (params: Record<string, string | number | undefined>): Promise<{results: TMDBItem[], totalPages: number}> => {
+    const cleanedParams: Record<string, string> = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined) cleanedParams[k] = String(v);
+    }
+    const data = await fetchJikan('/anime', cleanedParams);
+    return {
+      results: (data.data || []).map(mapJikanToTMDB),
       totalPages: data.pagination?.last_visible_page || 1
     };
   },
@@ -163,11 +177,16 @@ export const jikanService = {
         }))
       },
       production_companies: anime.studios || [],
+      themes: anime.themes || [],
+      demographics: anime.demographics || [],
+      number_of_episodes: anime.episodes || null,
+      status: anime.status || null,
       similar: {
-        results: (anime.relations || [])
+        results: Array.from(new Map((anime.relations || [])
           .filter((r: any) => r.relation === 'Sequel' || r.relation === 'Prequel' || r.relation === 'Alternative setting')
           .flatMap((r: any) => r.entry)
-          .map((e: any) => ({ id: `jikan_${e.mal_id}`, title: e.name, media_type: 'anime' }))
+          .map((e: any) => [`jikan_${e.mal_id}`, { id: `jikan_${e.mal_id}`, title: e.name, media_type: 'anime' }])
+        ).values())
       },
       recommendations: {
         results: [] // Jikan has a separate endpoint for recommendations, but we can leave this empty or fetch it
