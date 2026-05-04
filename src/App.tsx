@@ -7,6 +7,8 @@ import React, { useState, useEffect, createContext, useContext, ReactNode, useRe
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider, 
   signOut,
   type User as FirebaseUser
@@ -198,6 +200,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Handle redirect result to catch errors from signInWithRedirect
+    getRedirectResult(auth).catch((error) => {
+      console.error('Redirect result error:', error);
+      if (error?.code === 'auth/unauthorized-domain') {
+        const domain = window.location.hostname;
+        toast.error(`Domain not authorized. Please go to Firebase Console -> Authentication -> Settings -> Authorized domains and add: ${domain}`, { duration: 15000 });
+      } else {
+        toast.error(error.message || 'Login failed after redirect.', { duration: 8000 });
+      }
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
@@ -207,12 +220,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async () => {
     const provider = new GoogleAuthProvider();
+    toast.loading('Starting login process...', { id: 'login-toast' });
     try {
       await signInWithPopup(auth, provider);
-      toast.success('Successfully logged in!');
-    } catch (error) {
+      toast.success('Successfully logged in!', { id: 'login-toast' });
+    } catch (error: any) {
       console.error('Login error:', error);
-      toast.error('Failed to log in.');
+      if (error.code === 'auth/unauthorized-domain') {
+        const domain = window.location.hostname;
+        toast.error(`Domain not authorized. Add ${domain} to Firebase Console -> Authentication -> Settings -> Authorized domains`, {
+          id: 'login-toast',
+          duration: 15000,
+        });
+        alert(`Firebase Login Error\n\nYour deployment domain (${domain}) is not authorized.\n\nTo fix this:\n1. Go to console.firebase.google.com\n2. Open your project\n3. Go to Authentication -> Settings -> Authorized domains\n4. Add: ${domain}`);
+      } else if (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user') {
+        toast.loading('Popup blocked or closed. Trying redirect method...', { id: 'login-toast' });
+        try {
+          await signInWithRedirect(auth, provider);
+        } catch(e: any) {
+          toast.error(e.message || 'Redirect login also failed.', { id: 'login-toast', duration: 8000 });
+        }
+      } else {
+        toast.error(error.message || 'Failed to log in. Trying redirect...', { id: 'login-toast', duration: 4000 });
+        try {
+          await signInWithRedirect(auth, provider);
+        } catch(e: any) {
+          toast.error(e.message || 'Failed to log in.', { id: 'login-toast', duration: 8000 });
+        }
+      }
     }
   };
 
@@ -6367,8 +6402,8 @@ function LandingPage() {
       </motion.div>
 
       {/* Cinematic Overlays */}
-      <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black to-transparent opacity-50" />
-      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black to-transparent opacity-50" />
+      <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black to-transparent opacity-50 pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black to-transparent opacity-50 pointer-events-none" />
     </div>
   );
 }
