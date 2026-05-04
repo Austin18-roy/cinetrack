@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm install --loglevel=error",
+  "installCommand": "npm install --silent",
   "rewrites": [
     {
       "source": "/(.*)",
