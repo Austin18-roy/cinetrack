@@ -234,19 +234,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         alert(`Firebase Login Error\n\nYour deployment domain (${domain}) is not authorized.\n\nTo fix this:\n1. Go to console.firebase.google.com\n2. Open your project\n3. Go to Authentication -> Settings -> Authorized domains\n4. Add: ${domain}`);
       } else if (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user') {
-        toast.loading('Popup blocked or closed. Trying redirect method...', { id: 'login-toast' });
-        try {
-          await signInWithRedirect(auth, provider);
-        } catch(e: any) {
-          toast.error(e.message || 'Redirect login also failed.', { id: 'login-toast', duration: 8000 });
-        }
+        toast.error('Browser blocked the login popup. Please open this app in a new tab using the icon at the top right of the preview window.', { id: 'login-toast', duration: 15000 });
+        console.error('Popup blocked:', error);
       } else {
-        toast.error(error.message || 'Failed to log in. Trying redirect...', { id: 'login-toast', duration: 4000 });
-        try {
-          await signInWithRedirect(auth, provider);
-        } catch(e: any) {
-          toast.error(e.message || 'Failed to log in.', { id: 'login-toast', duration: 8000 });
-        }
+        toast.error(error.message || 'Failed to log in.', { id: 'login-toast', duration: 8000 });
       }
     }
   };
@@ -6343,14 +6334,13 @@ function MediaTracker() {
         </div>
       )}
 
-      <Toaster theme="dark" position="bottom-right" />
     </div>
     </BackdropContext.Provider>
     </WatchlistContext.Provider>
   );
 }
 
-// --- Landing Page ---
+// --- App Root ---
 
 function LandingPage() {
   const { login } = useAuth();
@@ -6392,6 +6382,12 @@ function LandingPage() {
           >
             Begin Your Odyssey
           </Button>
+
+          {window.self !== window.top && (
+            <p className="text-xs font-bold text-amber-500/80 bg-amber-500/10 px-4 py-2 rounded-lg mt-2 max-w-sm mx-auto border border-amber-500/20">
+              Popup blocked? Right-click or use the "Open in new tab" button at the top right of the preview window to sign in.
+            </p>
+          )}
           
           <div className="flex items-center gap-4 text-white/20 uppercase tracking-[0.3em] text-[10px] font-black">
             <span className="w-12 h-px bg-white/10" />
@@ -6569,6 +6565,7 @@ export default function App() {
       <AuthProvider>
         <Intro />
         <AppContent />
+        <Toaster theme="dark" position="bottom-right" />
       </AuthProvider>
     </ActiveProvider>
   );
