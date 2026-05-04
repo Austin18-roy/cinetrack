@@ -854,7 +854,7 @@ function DetailModal({
   return (
     <AnimatePresence>
       {isOpen && item && (
-        <div className="detail-page relative" onScroll={handleScroll}>
+        <div className="detail-page" onScroll={handleScroll}>
           {/* Parallax Backdrop */}
           {(item.backdrop_path || details?.backdrop_path) && (
              <div 

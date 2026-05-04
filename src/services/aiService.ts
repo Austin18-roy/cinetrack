@@ -131,18 +131,19 @@ async function safeGeminiApiCall<T>(
       errorMessage = "AI rate limit reached. Please wait a moment.";
     } else if (error?.status === 404 || error?.message?.includes("not found")) {
       errorMessage = "AI model not found or currently unavailable.";
-    } else if (error?.status === 503 || error?.message?.includes("503") || error?.message?.includes("high demand") || error?.message?.includes("UNAVAILABLE")) {
+    } else if (error?.status === 503 || String(error?.message).includes("503") || String(error?.message).includes("high demand") || String(error?.message).includes("UNAVAILABLE")) {
       errorMessage = "AI service is currently experiencing high demand. Using fallback data.";
     } else if (error?.message) {
       try {
-        const parsed = JSON.parse(error.message);
+        const messageStr = typeof error.message === 'string' ? error.message : JSON.stringify(error.message);
+        const parsed = JSON.parse(messageStr);
         if (parsed.error && parsed.error.message) {
           errorMessage = `AI Error: ${parsed.error.message}`;
         } else {
-          errorMessage = `AI Error: ${error.message}`;
+          errorMessage = `AI Error: ${messageStr}`;
         }
       } catch (e) {
-        errorMessage = `AI Error: ${error.message}`;
+        errorMessage = `AI Error: ${typeof error.message === 'string' ? error.message : JSON.stringify(error.message)}`;
       }
     }
     toast.error(errorMessage, { id: 'gemini-error' });
