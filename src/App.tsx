@@ -3789,7 +3789,6 @@ function AnimeHero({ onItemClick }: { onItemClick: (item: any) => void }) {
 }
 
 import { Mood, moodThemes } from './utils/mood';
-import { GenreMenu } from './components/GenreMenu';
 import { DynamicRow } from './components/DynamicRow';
 import { MOVIE_ROWS, SERIES_ROWS, ANIME_ROWS, getRankedRows } from './utils/rowEngine';
 
@@ -3878,7 +3877,6 @@ function ExploreView({
                   <h2 className="text-4xl font-black text-white px-8">
                     {activeExploreTab === 'movie' ? 'Movies' : activeExploreTab === 'tv' ? 'TV Shows' : 'Content'}
                   </h2>
-                  <GenreMenu type={activeExploreTab as any} onSelectGenre={(genreInfo) => setSeeMoreGenre({ ...genreInfo, type: activeExploreTab as any })} />
                 </div>
                 
                 <div className="flex items-center gap-2 shrink-0">
