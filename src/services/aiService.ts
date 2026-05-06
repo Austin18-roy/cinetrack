@@ -45,6 +45,7 @@ export interface AIVerdict {
   targetAudience: string[];
   whyWatch: string;
   recommendationReason?: string;
+  moodKeywords?: string[];
   moodTags?: {
     intensity: 'Low' | 'Medium' | 'High' | string;
     complexity: 'Low' | 'Medium' | 'High' | string;
@@ -179,6 +180,8 @@ export const aiService = {
          - "cons": Where it may fall short (max 3 bullet points)
          - "targetAudience": Who should watch this (2-3 short descriptive phrases like "Fans of crime thrillers")
          - "whyWatch": 1 sentence summarizing the core appeal
+         - "recommendationReason": "Why Watch": A personalized 2-3 sentence paragraph explaining exactly why the user should watch this based on their "User's Recently Watched Titles (Viewing History)", mentioning specific common themes. If no history is provided, base it on the genre.
+         - "moodKeywords": an array of 3-5 specific mood-based tags (e.g., 'Intense', 'Calm', 'Nostalgic', 'Thought-Provoking', 'Gritty')
          - "moodTags": object with intensity, complexity, pace, emotion
          - "moodScores": object with thrill, story, emotion, pacing, intensity (scores from 1 to 10)
          `;
@@ -198,6 +201,8 @@ export const aiService = {
                  cons: { type: Type.ARRAY, items: { type: Type.STRING } },
                  targetAudience: { type: Type.ARRAY, items: { type: Type.STRING } },
                  whyWatch: { type: Type.STRING },
+                 recommendationReason: { type: Type.STRING },
+                 moodKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
                  moodTags: {
                    type: Type.OBJECT,
                    properties: {

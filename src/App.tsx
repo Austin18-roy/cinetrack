@@ -72,6 +72,7 @@ import {
   Quote,
   MonitorPlay,
   User,
+  BrainCircuit,
   Minus,
   MessageSquare,
   TrendingDown,
@@ -1177,6 +1178,30 @@ function DetailModal({
                                      {aiVerdict.whyWatch && <p className="text-primary/80 text-sm mt-3 font-medium italic border-l-2 border-primary/50 pl-3 py-1 bg-primary/5 rounded-r">{aiVerdict.whyWatch}</p>}
                                   </div>
                                </div>
+                               
+                               {aiVerdict.recommendationReason && (
+                                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl mt-4 relative overflow-hidden group">
+                                     <div className="absolute -top-10 -right-10 p-4 opacity-[0.03] pointer-events-none group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-700">
+                                        <BrainCircuit className="w-48 h-48 text-white" />
+                                     </div>
+                                     <div className="relative z-10">
+                                        <h4 className="text-zinc-400 font-black uppercase tracking-[0.1em] text-[11px] mb-3 flex items-center gap-2">
+                                           <BrainCircuit className="w-4 h-4" /> Why Watch? (Based on your history)
+                                        </h4>
+                                        <p className="text-white text-base leading-relaxed">{aiVerdict.recommendationReason}</p>
+                                     </div>
+                                  </div>
+                               )}
+                               
+                               {aiVerdict.moodKeywords && aiVerdict.moodKeywords.length > 0 && (
+                                  <div className="mt-4 flex flex-wrap gap-2">
+                                     {aiVerdict.moodKeywords.map((keyword, i) => (
+                                        <span key={i} className="bg-white/5 text-white border border-white/10 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow backdrop-blur-sm">
+                                           {keyword}
+                                        </span>
+                                     ))}
+                                  </div>
+                               )}
                                
                                {aiVerdict.moodTags && (
                                  <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
