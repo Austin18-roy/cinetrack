@@ -132,7 +132,7 @@ export const aiService = {
     viewingHistoryTitles: string[] = []
   ): Promise<AIVerdict | null> => {
     return safeGeminiApiCall<AIVerdict | null>(
-      `ai-verdict-v6-${item.id}-${profile.recentGenres.join(',')}`,
+      `ai-verdict-v7-${item.id}-${profile.recentGenres.join(',')}`,
       async () => {
          const prompt = `
          You are a film and TV expert AI. Generate a personalized summary and verdict for the following title.
@@ -244,28 +244,47 @@ export const aiService = {
   
         let castNames: string[] = [];
         if (details?.credits?.cast && details.credits.cast.length > 0) {
-          castNames = details.credits.cast.slice(0, 3).map((c: any) => c.name);
-          pros.push(`Engaging performances led by ${castNames.join(', ')}`);
+          castNames = details.credits.cast.slice(0, 2).map((c: any) => c.name);
+          pros.push(`The dynamic performances by ${castNames.join(' and ')} anchor the entire narrative beautifully`);
         }
          
         const runtime = details?.runtime || (details?.episode_run_time?.[0]);
-        if (runtime && runtime > 140) cons.push("Lengthy runtime might feel dragged out for some");
+        if (runtime && runtime > 140) cons.push(`With a runtime of over ${Math.floor(runtime/60)} hours, the middle act can feel noticeably bloated`);
+        else if (runtime && runtime < 30) cons.push("The short runtime doesn't allow enough breathing room for character development");
          
         const networks = details?.networks?.map((n:any) => n.name) || [];
-        if (networks.length > 0) pros.push(`High production value characteristic of ${networks[0]}`);
+        if (networks.length > 0) pros.push(`Features the consistently high production value you'd expect from a ${networks[0]} release`);
 
-        if (rating >= 7.5) pros.push(`Highly praised by audiences for its compelling execution`);
-        if (popularity > 150) pros.push(`Strong visual direction and engaging narrative`);
-        if (userAffinity > 15) pros.push(`Delivers the core appeal of ${matchedGenresTitle[0] || 'the genre'} effectively`);
-  
+        const director = details?.credits?.crew?.find((c: any) => c.job === 'Director');
+        if (director) pros.push(`Strong, deliberate visual direction guided by ${director.name}`);
+
+        const keywords = details?.keywords?.keywords || details?.keywords?.results || [];
+        const topKeyword = keywords[0]?.name;
+        if (topKeyword) pros.push(`Offers a really compelling and nuanced take on the underlying theme of ${topKeyword}`);
+
+        if (rating >= 8) pros.push(`Masterfully executes its concept, earning universal praise and critical acclaim`);
+        else if (rating >= 7) pros.push(`Effectively balances its dramatic tension to keep audiences hooked throughout`);
+
+        if (popularity > 150) pros.push(`Its breathtaking visual scale and set pieces are genuinely impressive`);
+        
         const isDrama = genres.includes(18) || genres.includes(8);
         const isAction = genres.includes(28) || genres.includes(1);
+        const isComedy = genres.includes(35) || genres.includes(4);
+        const isHorror = genres.includes(27) || genres.includes(14);
         
-        if (isDrama) pros.push("Deeply emotional storytelling with complex character arcs");
-        if (isAction) pros.push("Fast-paced action sequences and high stakes");
+        if (isDrama) pros.push("Delivers emotionally resonant storytelling with deeply layered character arcs");
+        if (isAction) pros.push("Features meticulously choreographed action sequences with palpably high stakes");
+        if (isComedy) pros.push("Consistently lands its comedic timing while maintaining heart and charm");
+        if (isHorror) pros.push("Builds genuine, unrelenting suspense rather than relying on cheap jump scares");
         
-        if (rating > 0 && rating < 5.5) cons.push("Below average narrative cohesion");
-        if (userAffinity < -10) cons.push("May lack the thematic elements you usually enjoy");
+        if (rating > 0 && rating < 5.5) cons.push("Suffers from severe narrative cohesion issues and inconsistent tone");
+        if (rating > 0 && rating < 6.5) cons.push("The script occasionally falls into familiar cliches and predictable tropes");
+
+        if (userAffinity < -10) cons.push(`Divides its audience, possibly alienating viewers looking for traditional ${matchedGenresTitle[0] || 'genre'} fare`);
+        
+        if (cons.length < 2) {
+           cons.push("Certain secondary subplots feel underdeveloped and lack satisfying resolution");
+        }
   
         let recommendationReason = "";
         if (userAffinity > 30) {
