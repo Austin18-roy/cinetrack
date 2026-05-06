@@ -1131,7 +1131,7 @@ function DetailModal({
                                  <h4 className="text-primary font-bold uppercase tracking-widest text-xs mb-2">AI Overview</h4>
                                  <p className="text-zinc-300 leading-relaxed text-lg">{aiVerdict.summary}</p>
                                </div>
-                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                               <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4 mt-2">
                                  {aiVerdict.pros && aiVerdict.pros.length > 0 && (
                                     <div className="bg-emerald-500/10 border border-emerald-500/30 p-5 rounded-2xl relative overflow-hidden group">
                                       <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -1145,6 +1145,24 @@ function DetailModal({
                                         {aiVerdict.pros.map((pro, i) => (
                                           <li key={i} className="text-emerald-100/90 text-sm flex gap-2">
                                             <span className="text-emerald-500 mt-0.5">•</span> <span>{pro}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                 )}
+                                 {aiVerdict.neutrals && aiVerdict.neutrals.length > 0 && (
+                                    <div className="bg-amber-500/10 border border-amber-500/30 p-5 rounded-2xl relative overflow-hidden group">
+                                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                                         <Minus className="w-16 h-16 text-amber-500" />
+                                      </div>
+                                      <h4 className="text-amber-400 font-black uppercase tracking-widest text-[11px] mb-4 flex items-center gap-2 relative z-10">
+                                         <div className="bg-amber-500/20 p-1.5 rounded-full"><Minus className="w-3.5 h-3.5 text-amber-500" /></div>
+                                         Neutral Observations
+                                      </h4>
+                                      <ul className="space-y-2.5 relative z-10">
+                                        {aiVerdict.neutrals.map((neutral, i) => (
+                                          <li key={i} className="text-amber-100/90 text-sm flex gap-2">
+                                            <span className="text-amber-500 mt-0.5">•</span> <span>{neutral}</span>
                                           </li>
                                         ))}
                                       </ul>

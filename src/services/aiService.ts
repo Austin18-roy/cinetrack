@@ -41,6 +41,7 @@ export interface AIVerdict {
   reason: string;
   pros: string[];
   cons: string[];
+  neutrals: string[];
   summary: string;
   targetAudience: string[];
   whyWatch: string;
@@ -132,23 +133,26 @@ export const aiService = {
     viewingHistoryTitles: string[] = []
   ): Promise<AIVerdict | null> => {
     return safeGeminiApiCall<AIVerdict | null>(
-      `ai-verdict-v7-${item.id}-${profile.recentGenres.join(',')}`,
+      `ai-verdict-v12-${item.id}-${profile.recentGenres.join(',')}`,
       async () => {
          const prompt = `
-         You are a film and TV expert AI. Generate a personalized summary and verdict for the following title.
+         You are an elite film and TV critic. Generate a comprehensive, highly specific review and verdict for the following title.
          
          Title: "${item.title || item.name}"
          Overview: "${item.overview}"
          Genres: ${details?.genres?.map((g: any) => g.name).join(', ') || item.genre_ids?.join(', ')}
          User's Recently Watched Titles (Viewing History): ${viewingHistoryTitles.slice(0, 10).join(', ') || 'None provided'}
          
+         CRITICAL REQUIREMENT: Do NOT use generic phrases like "pacing issues" or "appeals to everyone". Your 'pros', 'cons', and 'neutrals' MUST be highly detailed, reviewing SPECIFIC plot elements, character developments, visual techniques, cinematic accomplishments, or undeniable flaws of this exact movie/show. You are FORBIDDEN from using the word "pacing" in the 'cons' section. 
+         
          Structure your response as follows:
          - "verdict": "Must Watch", "Worth Watching", "Depends on Taste", or "Skip"
          - "reason": 1 short sentence reason for the verdict
-         - "summary": A neutral but insightful overview (2-3 sentences), no spoilers, focusing on pacing and style
-         - "pros": EXACTLY what this specific title does well (max 5 bullet points) (e.g. NOT "matches your preference", but "Stunning cinematography", "Great performance by [Actor]", "Unique take on [Theme]"). Must be specific to the content itself.
-         - "cons": EXACTLY where this specific title may fall short (max 3 bullet points) (e.g. NOT "pacing issues", but "The middle act drags", "CGI in climax is weak"). Must be specific to the content.
-         - "targetAudience": Who should watch this (2-3 short descriptive phrases like "Fans of crime thrillers")
+         - "summary": A well-written critical overview (3-4 sentences), no spoilers, focusing on narrative execution, character arcs, and cinematic style.
+         - "pros": 3 to 4 detailed bullet points explaining EXACTLY what this title does well. (Example: "Roger Deakins' cinematography beautifully captures the bleakness of the desert", OR "The nuanced portrayal of grief by the lead actor grounds the sci-fi elements.")
+         - "neutrals": 2 to 3 detailed bullet points capturing objective points of interest or mixed elements. (Example: "The narrative structure relies heavily on non-linear flashbacks", OR "Caters exclusively to hardcore sci-fi fans, leaving little entry point for casual viewers.")
+         - "cons": EXACTLY 2 to 3 detailed bullet points explaining EXACTLY where this title falls short. (Example: "The third act devolves into a CGI-heavy spectacle that loses the emotional core", OR "Certain supporting characters feel one-dimensional.") You MUST provide strong cons, even for great movies (point out minor flaws). NEVER mention "pacing".
+         - "targetAudience": Who should watch this (2-3 short descriptive phrases like "Fans of psychological horror")
          - "whyWatch": 1 sentence summarizing the core appeal
          - "recommendationReason": "Why Watch": A personalized 2-3 sentence paragraph explaining exactly why the user should watch this based on their "User's Recently Watched Titles (Viewing History)", mentioning specific common themes. If no history is provided, base it on the genre.
          - "moodKeywords": an array of 3-5 specific mood-based tags (e.g., 'Intense', 'Calm', 'Nostalgic', 'Thought-Provoking', 'Gritty')
@@ -157,7 +161,7 @@ export const aiService = {
          `;
 
          const response = await getAIClient().models.generateContent({
-           model: 'gemini-2.5-flash',
+           model: 'gemini-1.5-flash',
            contents: prompt,
            config: {
              responseMimeType: "application/json",
@@ -169,6 +173,7 @@ export const aiService = {
                  summary: { type: Type.STRING },
                  pros: { type: Type.ARRAY, items: { type: Type.STRING } },
                  cons: { type: Type.ARRAY, items: { type: Type.STRING } },
+                 neutrals: { type: Type.ARRAY, items: { type: Type.STRING } },
                  targetAudience: { type: Type.ARRAY, items: { type: Type.STRING } },
                  whyWatch: { type: Type.STRING },
                  recommendationReason: { type: Type.STRING },
@@ -298,10 +303,10 @@ export const aiService = {
         }
   
         pros = Array.from(new Set(pros)).slice(0, 4);
-        cons = Array.from(new Set(cons)).slice(0, 2);
+        cons = Array.from(new Set(cons)).slice(0, 3);
   
-        if (pros.length === 0) pros.push("An intriguing concept");
-        if (cons.length === 0) cons.push("Pacing may not appeal to everyone");
+        if (pros.length === 0) pros.push("Features an intriguing and ambitious conceptual framework");
+        if (cons.length === 0) cons.push("May feature some tonal inconsistencies or predictable plot beats for seasoned viewers");
   
         const title = item.title || item.name || "This title";
         const genreNames = matchedGenresTitle.length > 0 ? matchedGenresTitle : ["various genres"];
@@ -312,13 +317,14 @@ export const aiService = {
         
         const shortOverview = item.overview ? item.overview.split('. ')[0] + '.' : '';
         
-        const summary = `${title} is a ${tone} ${genreNames.slice(0,2).join("-").toLowerCase()} title${castInfo}. ${shortOverview} Why people like it: Strong performances, ${isDrama ? "emotional storytelling" : isAction ? "fast-paced action sequences" : "entertaining pacing"}, and memorable scenes that keep viewers hooked. Overall: A ${rating >= 7 ? "worth-watching" : "casual"} pick for ${genreNames[0]} fans.`;
+        const summary = `${title} is a ${tone} ${genreNames.slice(0,2).join("-").toLowerCase()} title${castInfo}. ${shortOverview} \n\n[OFFLINE MODE] You are currently viewing offline insights because the AI is either rate-limited or unavailable. The detailed critical review will load when the connection restores or quota resets.`;
   
         const result: AIVerdict = {
           verdict,
           reason: userAffinity > 15 ? `Strong match! Based on your love for ${matchedGenresTitle.slice(0, 2).join(' & ')}.` : "Analysis based on global metadata and your preferences.",
           pros,
           cons,
+          neutrals: ["The narrative structure relies heavily on genre conventions"],
           summary,
           targetAudience: ["General audiences"],
           whyWatch: recommendationReason,
@@ -338,8 +344,9 @@ export const aiService = {
           }
         };
   
+        // Fallback caching
         try {
-          localStorage.setItem(`ai-verdict-${item.id}-${profile.recentGenres.join(',')}`, JSON.stringify(result));
+          localStorage.setItem(`ai-verdict-v12-${item.id}-${profile.recentGenres.join(',')}`, JSON.stringify(result));
         } catch (e) {
         }
   
@@ -372,7 +379,7 @@ export const aiService = {
         `;
 
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-1.5-flash',
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -434,7 +441,7 @@ export const aiService = {
         `;
 
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-1.5-flash',
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -470,7 +477,7 @@ export const aiService = {
         Examples: "Revenge", "Survival", "Betrayal", "Redemption", "Underdog", "Forbidden Love".
         Return as a JSON array of strings.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-1.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
@@ -487,7 +494,7 @@ export const aiService = {
         Include movies, series, and OVAs. 
         Return as a JSON array of objects: { "step": "Title", "type": "Movie/Series/OVA" }.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-1.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
@@ -510,7 +517,7 @@ export const aiService = {
          `;
 
          const response = await getAIClient().models.generateContent({
-           model: 'gemini-2.5-flash',
+           model: 'gemini-1.5-flash',
            contents: prompt,
            config: {
              responseMimeType: "application/json",
@@ -550,7 +557,7 @@ export const aiService = {
         Should they continue or drop? 
         Provide a JSON object: { "advice": "Continue" | "Drop" | "Depends", "reason": "Short explanation (e.g., 'Gets better after Ep 5')" }.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-1.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
