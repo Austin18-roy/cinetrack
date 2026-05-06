@@ -162,7 +162,7 @@ export const aiService = {
     viewingHistoryTitles: string[] = []
   ): Promise<AIVerdict | null> => {
     return safeGeminiApiCall<AIVerdict | null>(
-      `ai-verdict-${item.id}-${profile.recentGenres.join(',')}`,
+      `ai-verdict-v2-${item.id}-${profile.recentGenres.join(',')}`,
       async () => {
          const prompt = `
          You are a film and TV expert AI. Generate a personalized summary and verdict for the following title.
