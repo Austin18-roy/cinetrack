@@ -40,7 +40,7 @@ export function SmartGenreDropdown({
       let suggestedStr = "[]";
       try {
         const { GoogleGenAI } = await import('@google/genai');
-        const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined);
+        const apiKey = typeof process.env.GEMINI_API_KEY === 'string' ? process.env.GEMINI_API_KEY : (import.meta as any).env.VITE_GEMINI_API_KEY;
         if (apiKey) {
             const genAI = new GoogleGenAI({ apiKey });
             const prompt = `User query: "${searchQuery}". Available genres: ${genres.map(g => g.name).join(', ')}. Which 1-3 genres fit best? Return ONLY a valid JSON array of strings exactly matching the available genres. No markdown, no other text.`;

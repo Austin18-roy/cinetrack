@@ -6,7 +6,7 @@ import { toast } from "sonner";
 let _ai: any = null;
 function getAIClient() {
   if (!_ai) {
-    const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined);
+    const apiKey = typeof process.env.GEMINI_API_KEY === 'string' ? process.env.GEMINI_API_KEY : (import.meta as any).env.VITE_GEMINI_API_KEY;
     
     if (!apiKey) {
       console.warn("An API Key must be set for full AI features. Falling back.");
