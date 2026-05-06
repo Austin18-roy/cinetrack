@@ -84,8 +84,6 @@ export interface VibeExplanation {
 }
 
 // Rate Limiting Config
-let lastGeminiCall = 0;
-const GEMINI_RATE_LIMIT_MS = 2000;
 
 async function safeGeminiApiCall<T>(
   cacheKey: string, 
@@ -99,14 +97,7 @@ async function safeGeminiApiCall<T>(
     // ignore parsing errors
   }
 
-  const now = Date.now();
-  if (now - lastGeminiCall < GEMINI_RATE_LIMIT_MS) {
-    console.warn("Rate limiting Gemini to prevent quota exhaustion using fallback.");
-    return fallback();
-  }
-
-  lastGeminiCall = Date.now();
-
+  
   try {
     const result = await apiCall();
     try {
@@ -127,28 +118,7 @@ async function safeGeminiApiCall<T>(
     return result;
   } catch (error: any) {
     console.error("Gemini API Error (Quota/Network), using fallback:", error);
-    let errorMessage = "AI engine failed to connect.";
-    if (error?.status === 429 || error?.message?.includes('429') || error?.message?.includes('Quota')) {
-      errorMessage = "AI rate limit reached. Please wait a moment.";
-    } else if (error?.status === 404 || error?.message?.includes("not found")) {
-      errorMessage = "AI model not found or currently unavailable.";
-    } else if (error?.status === 503 || String(error?.message).includes("503") || String(error?.message).includes("high demand") || String(error?.message).includes("UNAVAILABLE")) {
-      errorMessage = "AI service is currently experiencing high demand. Using fallback data.";
-    } else if (error?.message) {
-      try {
-        const messageStr = typeof error.message === 'string' ? error.message : JSON.stringify(error.message);
-        const parsed = JSON.parse(messageStr);
-        if (parsed.error && parsed.error.message) {
-          errorMessage = `AI Error: ${parsed.error.message}`;
-        } else {
-          errorMessage = `AI Error: ${messageStr}`;
-        }
-      } catch (e) {
-        errorMessage = `AI Error: ${typeof error.message === 'string' ? error.message : JSON.stringify(error.message)}`;
-      }
-    }
-    toast.error(errorMessage, { id: 'gemini-error' });
-    return fallback();
+return fallback();
   }
 }
 
@@ -162,7 +132,7 @@ export const aiService = {
     viewingHistoryTitles: string[] = []
   ): Promise<AIVerdict | null> => {
     return safeGeminiApiCall<AIVerdict | null>(
-      `ai-verdict-v2-${item.id}-${profile.recentGenres.join(',')}`,
+      `ai-verdict-v4-${item.id}-${profile.recentGenres.join(',')}`,
       async () => {
          const prompt = `
          You are a film and TV expert AI. Generate a personalized summary and verdict for the following title.
@@ -176,8 +146,8 @@ export const aiService = {
          - "verdict": "Must Watch", "Worth Watching", "Depends on Taste", or "Skip"
          - "reason": 1 short sentence reason for the verdict
          - "summary": A neutral but insightful overview (2-3 sentences), no spoilers, focusing on pacing and style
-         - "pros": What it does well (max 5 bullet points)
-         - "cons": Where it may fall short (max 3 bullet points)
+         - "pros": EXACTLY what this specific title does well (max 5 bullet points) (e.g. NOT "matches your preference", but "Stunning cinematography", "Great performance by [Actor]", "Unique take on [Theme]"). Must be specific to the content itself.
+         - "cons": EXACTLY where this specific title may fall short (max 3 bullet points) (e.g. NOT "pacing issues", but "The middle act drags", "CGI in climax is weak"). Must be specific to the content.
          - "targetAudience": Who should watch this (2-3 short descriptive phrases like "Fans of crime thrillers")
          - "whyWatch": 1 sentence summarizing the core appeal
          - "recommendationReason": "Why Watch": A personalized 2-3 sentence paragraph explaining exactly why the user should watch this based on their "User's Recently Watched Titles (Viewing History)", mentioning specific common themes. If no history is provided, base it on the genre.
@@ -272,18 +242,18 @@ export const aiService = {
           verdict = 'Skip';
         }
   
-        if (rating >= 7.5) pros.push("Critically acclaimed and highly rated");
-        if (popularity > 150) pros.push("Trending globally right now");
-        if (userAffinity > 15) pros.push(`Matches your preference for ${matchedGenresTitle[0] || 'your favorite genres'}`);
+        if (rating >= 7.5) pros.push(`Highly praised by audiences for its compelling execution`);
+        if (popularity > 150) pros.push(`Strong visual direction and engaging narrative`);
+        if (userAffinity > 15) pros.push(`Delivers the core appeal of ${matchedGenresTitle[0] || 'the genre'} effectively`);
   
         const isDrama = genres.includes(18) || genres.includes(8);
         const isAction = genres.includes(28) || genres.includes(1);
         
-        if (isDrama) pros.push("Strong emotional storytelling");
-        if (isAction) pros.push("Fast-paced action sequences");
+        if (isDrama) pros.push("Deeply emotional storytelling with complex character arcs");
+        if (isAction) pros.push("Fast-paced action sequences and high stakes");
         
-        if (rating > 0 && rating < 5.5) cons.push("Below average global reception");
-        if (userAffinity < -10) cons.push("Includes themes you typically avoid");
+        if (rating > 0 && rating < 5.5) cons.push("Below average narrative cohesion");
+        if (userAffinity < -10) cons.push("May lack the thematic elements you usually enjoy");
   
         let recommendationReason = "";
         if (userAffinity > 30) {

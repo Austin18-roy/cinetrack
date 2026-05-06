@@ -763,18 +763,19 @@ function DetailModal({
             providerCountry: providers?.[userCountry] ? userCountry : (providers?.['US'] ? 'US' : null)
           });
 
-          // Fetch Story DNA Offline
+          // Fetch Story DNA Offline Fallback
+          let offlineKeywords: string[] = [];
           if (item.media_type === 'anime' || (typeof item.id === 'string' && item.id.startsWith('jikan_'))) {
             const themes = (data?.themes || []).map((t: any) => t.name);
             const demogs = (data?.demographics || []).map((d: any) => d.name);
-            const combined = [...themes, ...demogs].slice(0, 5);
-            setStoryDNA(combined.length > 0 ? combined : (data?.genres?.map((g: any) => g.name).slice(0, 3) || []));
+            offlineKeywords = [...themes, ...demogs].slice(0, 5);
+            if (offlineKeywords.length === 0) {
+               offlineKeywords = data?.genres?.map((g: any) => g.name).slice(0, 3) || [];
+            }
           } else {
             const rawKeywords = data?.keywords?.keywords || data?.keywords?.results || [];
             if (Array.isArray(rawKeywords)) {
-               setStoryDNA(rawKeywords.slice(0, 5).map((k: any) => k.name).filter(Boolean));
-            } else {
-               setStoryDNA([]);
+               offlineKeywords = rawKeywords.slice(0, 5).map((k: any) => k.name).filter(Boolean);
             }
           }
 
@@ -788,15 +789,25 @@ function DetailModal({
             setOmdbRatings(null);
           }
 
-          // Fetch AI Verdict
+          // Fetch AI Verdict & DNA
           setIsVerdictLoading(true);
           const profile = userProfile || profileService.getProfile();
           const watchedTitles = watchlistItems
              .filter(i => i.status === 'completed' || i.status === 'watching')
              .map(i => i.title || '')
              .filter(Boolean);
-          const verdict = await aiService.getVerdictAndSummary(item, data, ratings?.watchScore || null, profile, watchedTitles);
-          setAiVerdict(verdict);
+             
+          try {
+             const [verdict, dna] = await Promise.all([
+               aiService.getVerdictAndSummary(item, data, ratings?.watchScore || null, profile, watchedTitles),
+               aiService.getStoryDNA({ ...item, ...data })
+             ]);
+             setAiVerdict(verdict);
+             setStoryDNA(dna && dna.length > 0 ? dna : offlineKeywords);
+          } catch (e) {
+             console.error("AI details fetch failed", e);
+             setStoryDNA(offlineKeywords);
+          }
           setIsVerdictLoading(false);
 
         } catch (error) {
@@ -1241,14 +1252,17 @@ function DetailModal({
                            )}
                            {storyDNA.length > 0 && (
                              <div className="pt-4 border-t border-white/10">
-                               <h4 className="text-primary font-bold uppercase tracking-widest text-xs mb-3">Story Vibes</h4>
-                               <div className="flex flex-wrap gap-2">
+                               <h4 className="text-primary font-bold uppercase tracking-widest text-xs mb-3 flex items-center gap-2">
+                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 3 8 8 8-8"/><path d="M3 21l8-8 8 8"/><path d="M12 12v-2"/><path d="M12 14v2"/><path d="M3 10v4"/><path d="M21 10v4"/></svg>
+                                 Story DNA
+                               </h4>
+                               <ul className="grid grid-cols-2 gap-2 mt-2">
                                  {storyDNA.map((dna, idx) => (
-                                    <span key={idx} className="bg-primary/20 text-primary border border-primary/20 px-3 py-1 rounded-md text-xs font-black uppercase tracking-widest">
-                                      🔥 {dna}
-                                    </span>
+                                    <li key={idx} className="text-zinc-300 text-sm flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/10">
+                                      <span className="text-primary">◆</span> {dna}
+                                    </li>
                                  ))}
-                               </div>
+                               </ul>
                              </div>
                            )}
                         </div>
@@ -3864,7 +3878,7 @@ function ExploreView({
                   <h2 className="text-4xl font-black text-white px-8">
                     {activeExploreTab === 'movie' ? 'Movies' : activeExploreTab === 'tv' ? 'TV Shows' : 'Content'}
                   </h2>
-                  <GenreMenu type={activeExploreTab as any} onSelectGenre={(g) => setSeeMoreGenre({ name: g, type: activeExploreTab as any })} />
+                  <GenreMenu type={activeExploreTab as any} onSelectGenre={(genreInfo) => setSeeMoreGenre({ ...genreInfo, type: activeExploreTab as any })} />
                 </div>
                 
                 <div className="flex items-center gap-2 shrink-0">
