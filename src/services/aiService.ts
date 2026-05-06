@@ -132,7 +132,7 @@ export const aiService = {
     viewingHistoryTitles: string[] = []
   ): Promise<AIVerdict | null> => {
     return safeGeminiApiCall<AIVerdict | null>(
-      `ai-verdict-v5-${item.id}-${profile.recentGenres.join(',')}`,
+      `ai-verdict-v6-${item.id}-${profile.recentGenres.join(',')}`,
       async () => {
          const prompt = `
          You are a film and TV expert AI. Generate a personalized summary and verdict for the following title.
@@ -228,11 +228,11 @@ export const aiService = {
         let verdict: 'Must Watch' | 'Worth Watching' | 'Depends on Taste' | 'Skip' = 'Depends on Taste';
   
         if (rating >= 8) {
-          verdict = "Must Watch";
+           verdict = "Must Watch";
         } else if (rating >= 7) {
-          verdict = "Worth Watching";
+           verdict = "Worth Watching";
         } else if (rating > 0 && rating < 6) {
-          verdict = "Skip";
+           verdict = "Skip";
         }
   
         if (userAffinity > 20 && verdict === 'Depends on Taste' && rating >= 6) {
@@ -242,6 +242,18 @@ export const aiService = {
           verdict = 'Skip';
         }
   
+        let castNames: string[] = [];
+        if (details?.credits?.cast && details.credits.cast.length > 0) {
+          castNames = details.credits.cast.slice(0, 3).map((c: any) => c.name);
+          pros.push(`Engaging performances led by ${castNames.join(', ')}`);
+        }
+         
+        const runtime = details?.runtime || (details?.episode_run_time?.[0]);
+        if (runtime && runtime > 140) cons.push("Lengthy runtime might feel dragged out for some");
+         
+        const networks = details?.networks?.map((n:any) => n.name) || [];
+        if (networks.length > 0) pros.push(`High production value characteristic of ${networks[0]}`);
+
         if (rating >= 7.5) pros.push(`Highly praised by audiences for its compelling execution`);
         if (popularity > 150) pros.push(`Strong visual direction and engaging narrative`);
         if (userAffinity > 15) pros.push(`Delivers the core appeal of ${matchedGenresTitle[0] || 'the genre'} effectively`);
