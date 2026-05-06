@@ -132,7 +132,7 @@ export const aiService = {
     viewingHistoryTitles: string[] = []
   ): Promise<AIVerdict | null> => {
     return safeGeminiApiCall<AIVerdict | null>(
-      `ai-verdict-v4-${item.id}-${profile.recentGenres.join(',')}`,
+      `ai-verdict-v5-${item.id}-${profile.recentGenres.join(',')}`,
       async () => {
          const prompt = `
          You are a film and TV expert AI. Generate a personalized summary and verdict for the following title.
@@ -157,7 +157,7 @@ export const aiService = {
          `;
 
          const response = await getAIClient().models.generateContent({
-           model: 'gemini-3-flash-preview',
+           model: 'gemini-2.5-flash',
            contents: prompt,
            config: {
              responseMimeType: "application/json",
@@ -341,7 +341,7 @@ export const aiService = {
         `;
 
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-2.5-flash',
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -403,7 +403,7 @@ export const aiService = {
         `;
 
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-2.5-flash',
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -433,13 +433,13 @@ export const aiService = {
   },
   getStoryDNA: async (item: TMDBItem): Promise<string[]> => {
     return safeGeminiApiCall<string[]>(
-      `dna-${item.id}`,
+      `dna-v2-${item.id}`,
       async () => {
         const prompt = `Extract 3-5 core story themes (DNA) for "${item.title || item.name}". 
         Examples: "Revenge", "Survival", "Betrayal", "Redemption", "Underdog", "Forbidden Love".
         Return as a JSON array of strings.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-2.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
@@ -456,7 +456,7 @@ export const aiService = {
         Include movies, series, and OVAs. 
         Return as a JSON array of objects: { "step": "Title", "type": "Movie/Series/OVA" }.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-2.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
@@ -479,7 +479,7 @@ export const aiService = {
          `;
 
          const response = await getAIClient().models.generateContent({
-           model: 'gemini-3-flash-preview',
+           model: 'gemini-2.5-flash',
            contents: prompt,
            config: {
              responseMimeType: "application/json",
@@ -519,7 +519,7 @@ export const aiService = {
         Should they continue or drop? 
         Provide a JSON object: { "advice": "Continue" | "Drop" | "Depends", "reason": "Short explanation (e.g., 'Gets better after Ep 5')" }.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-2.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
