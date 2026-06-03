@@ -137,6 +137,39 @@
     --brand: #a855f7;
     --glow: rgba(168, 85, 247, 0.2);
   }
+
+  /* 🌴 Synthwave (Retrowave Pink/Purple) */
+  [data-theme="synthwave"] {
+    --bg: #2b1055;
+    --card: #1f0b3e;
+    --text: #ff71ce;
+    --muted-text: #01cdfe;
+    --border: #05ffa1;
+    --brand: #ff003c;
+    --glow: rgba(255, 113, 206, 0.25);
+  }
+
+  /* 🧛 Dracula (Dark Twilight/Pastel Pink) */
+  [data-theme="dracula"] {
+    --bg: #282a36;
+    --card: #44475a;
+    --text: #f8f8f2;
+    --muted-text: #6272a4;
+    --border: #8be9fd;
+    --brand: #ff79c6;
+    --glow: rgba(255, 121, 198, 0.15);
+  }
+
+  /* 🦑 Abyss (Deep Underwater Blue) */
+  [data-theme="abyss"] {
+    --bg: #000c18;
+    --card: #001f3f;
+    --text: #7fdbff;
+    --muted-text: #39cccc;
+    --border: #01ff70;
+    --brand: #39cccc;
+    --glow: rgba(1, 255, 112, 0.2);
+  }
 }
 
 @layer base {

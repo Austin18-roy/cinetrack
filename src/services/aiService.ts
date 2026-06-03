@@ -161,7 +161,7 @@ export const aiService = {
          `;
 
          const response = await getAIClient().models.generateContent({
-           model: 'gemini-1.5-flash',
+           model: 'gemini-3.5-flash',
            contents: prompt,
            config: {
              responseMimeType: "application/json",
@@ -379,7 +379,7 @@ export const aiService = {
         `;
 
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-3.5-flash',
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -441,7 +441,7 @@ export const aiService = {
         `;
 
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-3.5-flash',
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -477,7 +477,7 @@ export const aiService = {
         Examples: "Revenge", "Survival", "Betrayal", "Redemption", "Underdog", "Forbidden Love".
         Return as a JSON array of strings.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-3.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
@@ -494,7 +494,7 @@ export const aiService = {
         Include movies, series, and OVAs. 
         Return as a JSON array of objects: { "step": "Title", "type": "Movie/Series/OVA" }.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-3.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
@@ -517,7 +517,7 @@ export const aiService = {
          `;
 
          const response = await getAIClient().models.generateContent({
-           model: 'gemini-1.5-flash',
+           model: 'gemini-3.5-flash',
            contents: prompt,
            config: {
              responseMimeType: "application/json",
@@ -557,7 +557,7 @@ export const aiService = {
         Should they continue or drop? 
         Provide a JSON object: { "advice": "Continue" | "Drop" | "Depends", "reason": "Short explanation (e.g., 'Gets better after Ep 5')" }.`;
         const response = await getAIClient().models.generateContent({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-3.5-flash',
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });

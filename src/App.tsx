@@ -23,7 +23,11 @@ import {
   deleteDoc, 
   doc, 
   serverTimestamp, 
-  orderBy
+  orderBy,
+  collectionGroup,
+  getDocs,
+  limit,
+  increment
 } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { 
@@ -485,6 +489,7 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
   const [reviewText, setReviewText] = useState("");
   const [rating, setRating] = useState(10);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sort, setSort] = useState("newest");
 
   useEffect(() => {
     // MediaId can come in as number or string, but for query we want string
@@ -498,8 +503,6 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const revs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      // Sort client-side to avoid index requirements
-      revs.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       setReviews(revs);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'reviews');
@@ -524,6 +527,7 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
         mediaId: String(mediaId),
         rating,
         text: reviewText.trim(),
+        helpful: 0,
         createdAt: serverTimestamp(),
       });
       setReviewText("");
@@ -536,16 +540,61 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
     }
   };
 
+  const markHelpful = async (reviewId: string) => {
+    if (!user) {
+      toast.error("Sign in to vote");
+      return;
+    }
+    try {
+      const ref = doc(db, 'reviews', reviewId);
+      await updateDoc(ref, {
+        helpful: increment(1)
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `reviews/${reviewId}`);
+    }
+  };
+
+  const sortReviews = (reviewsToSort: any[]) => {
+    if (sort === "newest") {
+      return [...reviewsToSort].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    }
+    if (sort === "highest") {
+      return [...reviewsToSort].sort((a, b) => b.rating - a.rating);
+    }
+    if (sort === "lowest") {
+      return [...reviewsToSort].sort((a, b) => a.rating - b.rating);
+    }
+    if (sort === "helpful") {
+      return [...reviewsToSort].sort((a, b) => (b.helpful || 0) - (a.helpful || 0));
+    }
+    return reviewsToSort;
+  };
+
+  const sortedReviews = sortReviews(reviews);
+
   const avgRating = reviews.length > 0 ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1) : null;
-  const historyAsc = [...reviews].reverse();
+  const historyAsc = [...reviews].sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
   const trend = getTrend(historyAsc);
 
   return (
     <div className="space-y-6 mt-12 w-full border-t border-border pt-8">
       <div className="flex flex-wrap items-end justify-between border-b border-border pb-4 gap-4">
-        <h3 className="text-2xl font-black tracking-tighter flex items-center gap-2">
-          <MessageSquare className="w-5 h-5 text-primary" /> Community Reviews
-        </h3>
+        <div className="flex items-center gap-4">
+          <h3 className="text-2xl font-black tracking-tighter flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-primary" /> Community Reviews
+          </h3>
+          <select 
+             onChange={(e) => setSort(e.target.value)}
+             value={sort}
+             className="bg-[#111] border border-white/10 text-white rounded-md px-3 py-1.5 text-xs font-bold uppercase tracking-widest"
+           >
+             <option value="newest">Most Recent</option>
+             <option value="highest">Highest Rated</option>
+             <option value="lowest">Lowest Rated</option>
+             <option value="helpful">Most Helpful</option>
+           </select>
+        </div>
         
         {avgRating && (
           <div className="flex items-center gap-4">
@@ -571,7 +620,7 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
       </div>
 
       <div className="space-y-4">
-         {reviews.map((r) => (
+         {sortedReviews.map((r) => (
            <div key={r.id} className="bg-white/5 p-4 rounded-2xl border border-border space-y-3">
              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -590,7 +639,15 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
                   <span className="text-xs font-black text-yellow-500">{r.rating}/10</span>
                 </div>
              </div>
-             <p className="text-sm text-zinc-300 leading-relaxed">{r.review}</p>
+             <p className="text-sm text-zinc-300 leading-relaxed">{r.text || r.review}</p>
+             <div className="flex justify-between items-center mt-2 text-xs">
+                <button 
+                  onClick={() => markHelpful(r.id)}
+                  className="hover:text-white flex items-center transition bg-white/5 px-3 py-1.5 rounded-full text-zinc-400"
+                >
+                  👍 Mark as Helpful ({r.helpful || 0})
+                </button>
+             </div>
            </div>
          ))}
          
@@ -866,7 +923,14 @@ function DetailModal({
   return (
     <AnimatePresence>
       {isOpen && item && (
-        <div className="detail-page" onScroll={handleScroll}>
+        <motion.div 
+          className="detail-page" 
+          onScroll={handleScroll}
+          initial={{ opacity: 0, scale: 0.97, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.97, y: 15 }}
+          transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        >
           {/* Parallax Backdrop */}
           {(item.backdrop_path || details?.backdrop_path) && (
              <div 
@@ -1115,7 +1179,11 @@ function DetailModal({
 
                  {/* AI Insights section */}
                  {(isVerdictLoading || aiVerdict) && (
-                   <div>
+                   <motion.div
+                     initial={{ opacity: 0, y: 20 }}
+                     animate={{ opacity: 1, y: 0 }}
+                     transition={{ duration: 0.5, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                   >
                      <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                        <Sparkles className="w-5 h-5 text-primary" /> CineView Intelligence
                      </h3>
@@ -1285,7 +1353,7 @@ function DetailModal({
                            )}
                         </div>
                      )}
-                   </div>
+                   </motion.div>
                  )}
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
@@ -1442,7 +1510,7 @@ function DetailModal({
                </div>
             )}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {selectedActor && (
@@ -3955,6 +4023,869 @@ function ExploreView({
   );
 }
 
+function ProfileView({ 
+  user, 
+  items, 
+  level, 
+  levelProgress, 
+  stats, 
+  onItemClick, 
+  updateItemRating,
+  theme,
+  changeTheme,
+  customThemeColors,
+  handleCustomColorChange
+}: { 
+  user: any; 
+  items: MediaItem[]; 
+  level: number; 
+  levelProgress: number; 
+  stats: any; 
+  onItemClick: (item: any) => void;
+  updateItemRating: (id: string, newRating: number) => Promise<void>;
+  theme?: string;
+  changeTheme?: (newTheme: string) => void;
+  customThemeColors?: any;
+  handleCustomColorChange?: (key: string, value: string) => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editNotes, setEditNotes] = useState<string>('');
+  
+  const [search, setSearch] = useState<string>('');
+  const [filterType, setFilterType] = useState<'all' | 'movie' | 'tv' | 'anime'>('all');
+  const [scoreFilter, setScoreFilter] = useState<'all' | 'high' | 'mid' | 'low' | 'unrated'>('all');
+
+  const [galleryTab, setGalleryTab] = useState<'watchlist' | 'public'>('watchlist');
+  const [publicReviews, setPublicReviews] = useState<any[]>([]);
+  const [loadingPublic, setLoadingPublic] = useState(false);
+
+  const [editingPublicId, setEditingPublicId] = useState<string | null>(null);
+  const [editPublicText, setEditPublicText] = useState<string>('');
+  const [editPublicRating, setEditPublicRating] = useState<number>(10);
+
+  // Cache to store resolved metadata so multiple updates don't reload external APIs
+  const metadataCache = useRef<Record<string, { title: string; posterUrl: string | undefined; mediaType: MediaType }>>({});
+
+  // Real-time or snapshot load of public reviews
+  useEffect(() => {
+    if (!user) return;
+    
+    let isMounted = true;
+    const fetchPublicReviews = async () => {
+      setLoadingPublic(true);
+      try {
+        let snapshot;
+        try {
+          const q = query(
+            collectionGroup(db, 'reviews'),
+            where('userId', '==', user.uid)
+          );
+          snapshot = await getDocs(q);
+        } catch (err) {
+          console.warn("Missing index on userId for collectionGroup reviews, falling back:", err);
+          const fallbackQ = query(collectionGroup(db, 'reviews'), limit(100));
+          snapshot = await getDocs(fallbackQ);
+        }
+        
+        if (!isMounted) return;
+
+        const rawReviews = snapshot.docs
+          .filter(docSnap => docSnap.data().userId === user.uid)
+          .map(docSnap => {
+            const contentId = docSnap.ref.parent?.parent?.id || '';
+            return {
+              id: docSnap.id,
+              contentId,
+              ...docSnap.data()
+            };
+          });
+
+        const resolvedReviews = await Promise.all(rawReviews.map(async (rev): Promise<any> => {
+          // 1. Look up in active internal watchlist items first (it is fastest and accurate)
+          const matched = items.find(i => String(i.externalId) === String(rev.contentId));
+          if (matched) {
+            return {
+              ...rev,
+              title: matched.title,
+              posterUrl: matched.posterUrl,
+              mediaType: matched.type,
+              isWatchlistItem: true
+            };
+          }
+
+          // 2. Check memory cache next to avoid api hits
+          if (metadataCache.current[rev.contentId]) {
+            return {
+              ...rev,
+              title: metadataCache.current[rev.contentId].title,
+              posterUrl: metadataCache.current[rev.contentId].posterUrl,
+              mediaType: metadataCache.current[rev.contentId].mediaType,
+              isWatchlistItem: false
+            };
+          }
+
+          // 3. Fallback to API lookups
+          try {
+            const isAnime = String(rev.contentId).startsWith('jikan_');
+            const cleanId = String(rev.contentId).replace('jikan_', '');
+            const numericId = parseInt(cleanId, 10);
+
+            if (isAnime && !isNaN(numericId)) {
+              const animeDetails = await jikanService.getAnimeDetails(numericId).catch(() => null);
+              if (animeDetails && animeDetails.title) {
+                const metadata = {
+                  title: animeDetails.title_english || animeDetails.title,
+                  posterUrl: animeDetails.images?.jpg?.large_image_url || animeDetails.poster_path || undefined,
+                  mediaType: 'anime' as const
+                };
+                metadataCache.current[rev.contentId] = metadata;
+                return { ...rev, ...metadata, isWatchlistItem: false };
+              }
+            } else if (!isNaN(numericId)) {
+              // Try movie
+              const details = await tmdbService.getDetails(numericId, 'movie').catch(() => null);
+              if (details && (details.title || details.name)) {
+                const metadata = {
+                  title: details.title || details.name,
+                  posterUrl: details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : undefined,
+                  mediaType: 'movie' as const
+                };
+                metadataCache.current[rev.contentId] = metadata;
+                return { ...rev, ...metadata, isWatchlistItem: false };
+              }
+
+              // Try tv show
+              const tvDetails = await tmdbService.getDetails(numericId, 'tv').catch(() => null);
+              if (tvDetails && (tvDetails.title || tvDetails.name)) {
+                const metadata = {
+                  title: tvDetails.title || tvDetails.name,
+                  posterUrl: tvDetails.poster_path ? `https://image.tmdb.org/t/p/w500${tvDetails.poster_path}` : undefined,
+                  mediaType: 'series' as const
+                };
+                metadataCache.current[rev.contentId] = metadata;
+                return { ...rev, ...metadata, isWatchlistItem: false };
+              }
+            }
+          } catch (e) {
+            console.error("Error loading title details for", rev.contentId, e);
+          }
+
+          return {
+            ...rev,
+            title: `Media ID: ${rev.contentId}`,
+            mediaType: 'movie' as const,
+            isWatchlistItem: false
+          };
+        }));
+
+        // Sort reviews descending by date
+        resolvedReviews.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
+          const timeB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
+          return timeB - timeA;
+        });
+
+        if (isMounted) {
+          setPublicReviews(resolvedReviews);
+        }
+      } catch (err) {
+        console.error("Error querying public reviews:", err);
+      } finally {
+        if (isMounted) {
+          setLoadingPublic(false);
+        }
+      }
+    };
+
+    fetchPublicReviews();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user, items]);
+
+  // Filter items that have ratings or custom reviews (notes) in the personal watchlist group
+  const reviewedItems = useMemo(() => {
+    return items.filter(item => {
+      const isReviewed = (item.rating && item.rating > 0) || (item.notes && item.notes.trim() !== '');
+      if (!isReviewed) return false;
+
+      // Apply search
+      if (search.trim() && !item.title.toLowerCase().includes(search.toLowerCase())) return false;
+
+      // Apply type filter
+      if (filterType !== 'all') {
+        if (item.type !== filterType) return false;
+      }
+
+      // Apply score filter
+      if (scoreFilter !== 'all') {
+        const ratingVal = item.rating || 0; // 1-5 scale
+        if (scoreFilter === 'high' && ratingVal < 4) return false;
+        if (scoreFilter === 'mid' && (ratingVal < 3 || ratingVal > 4)) return false;
+        if (scoreFilter === 'low' && (ratingVal >= 3 || ratingVal === 0)) return false;
+        if (scoreFilter === 'unrated' && ratingVal > 0) return false;
+      }
+
+      return true;
+    });
+  }, [items, search, filterType, scoreFilter]);
+
+  // Filter items in the public reviews group
+  const filteredPublicReviews = useMemo(() => {
+    return publicReviews.filter(rev => {
+      // Apply search
+      if (search.trim() && !rev.title.toLowerCase().includes(search.toLowerCase())) return false;
+
+      // Apply type filter
+      if (filterType !== 'all') {
+        if (rev.mediaType !== filterType) return false;
+      }
+
+      // Apply score filter (score from 1-10 mapped to excellent/mid/low/unrated)
+      if (scoreFilter !== 'all') {
+        const ratingVal = rev.rating || 0; 
+        if (scoreFilter === 'high' && ratingVal < 7) return false; // 7-10 is high
+        if (scoreFilter === 'mid' && (ratingVal < 5 || ratingVal > 7)) return false; // 5-6 is mid
+        if (scoreFilter === 'low' && (ratingVal >= 5 || ratingVal === 0)) return false; // 1-4 is low
+        if (scoreFilter === 'unrated' && ratingVal > 0) return false;
+      }
+
+      return true;
+    });
+  }, [publicReviews, search, filterType, scoreFilter]);
+
+  const handleStartEdit = (item: MediaItem) => {
+    setEditingId(item.id);
+    setEditNotes(item.notes || '');
+  };
+
+  const handleSaveNotes = async (item: MediaItem) => {
+    try {
+      await updateDoc(doc(db, 'mediaItems', item.id), {
+        notes: editNotes.trim(),
+        updatedAt: serverTimestamp()
+      });
+      setEditingId(null);
+      toast.success('Watchlist notes updated!');
+    } catch (e) {
+      toast.error('Failed to update notes.');
+    }
+  };
+
+  const handleDeleteReviewNotes = async (item: MediaItem) => {
+    try {
+      await updateDoc(doc(db, 'mediaItems', item.id), {
+        notes: '',
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Watchlist notes cleared.');
+    } catch (e) {
+      toast.error('Failed to clear notes.');
+    }
+  };
+
+  const handleStartEditPublic = (rev: any) => {
+    setEditingPublicId(rev.id);
+    setEditPublicText(rev.text || '');
+    setEditPublicRating(rev.rating || 10);
+  };
+
+  const handleSavePublicReview = async (rev: any) => {
+    try {
+      const ref = doc(db, "reviews", String(rev.contentId), "reviews", rev.id);
+      await updateDoc(ref, {
+        text: editPublicText.trim(),
+        rating: editPublicRating,
+        createdAt: serverTimestamp()
+      });
+      setPublicReviews(prev => prev.map(r => r.id === rev.id ? { ...r, text: editPublicText.trim(), rating: editPublicRating } : r));
+      setEditingPublicId(null);
+      toast.success('Public review updated!');
+    } catch (err) {
+      toast.error('Failed to update public review.');
+    }
+  };
+
+  const handleDeletePublicReview = async (rev: any) => {
+    try {
+      const ref = doc(db, "reviews", String(rev.contentId), "reviews", rev.id);
+      await deleteDoc(ref);
+      setPublicReviews(prev => prev.filter(r => r.id !== rev.id));
+      toast.success('Public review deleted!');
+    } catch (err) {
+      toast.error('Failed to delete public review.');
+    }
+  };
+
+  const watchlistReviewCount = useMemo(() => {
+    return items.filter(i => i.notes && i.notes.trim() !== '').length;
+  }, [items]);
+
+  return (
+    <div className="space-y-10 max-w-7xl mx-auto px-4 md:px-8">
+      {/* Profile Header section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* User Stats Card */}
+        <div className="bg-card/40 border border-border backdrop-blur-md overflow-hidden rounded-[2.5rem] p-8 lg:col-span-2 flex flex-col md:flex-row items-center md:items-start gap-8 justify-between relative shadow-2xl">
+          <div className="absolute top-0 right-0 p-8 opacity-[0.02]">
+            <User className="w-40 h-40 text-primary" />
+          </div>
+          
+          <div className="flex flex-col md:flex-row items-center md:items-start gap-6 relative z-10 w-full">
+            <div className="w-24 h-24 rounded-[1.8rem] bg-gradient-to-br from-brand-amber via-yellow-500 to-amber-600 flex items-center justify-center font-black text-4xl text-black shadow-2xl shadow-primary/20 relative shrink-0">
+              {user?.displayName?.charAt(0) || user?.email?.charAt(0).toUpperCase() || 'U'}
+              <div className="absolute -bottom-1 -right-1 bg-zinc-950 border border-border/60 rounded-xl px-2.5 py-1 text-[9px] text-primary font-black uppercase tracking-widest leading-none shadow-xl">
+                LVL {level}
+              </div>
+            </div>
+            
+            <div className="space-y-4 text-center md:text-left w-full">
+              <div>
+                <h3 className="text-3xl font-black tracking-tight text-white mb-1.5 font-display">{user?.displayName || 'Cinephile User'}</h3>
+                <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.25em]">{user?.email}</p>
+              </div>
+
+              <div className="pt-2 max-w-md">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-muted-foreground mb-2">
+                  <span>EXP Progress to Level {level + 1}</span>
+                  <span>{stats.xp} / {level * 500} XP</span>
+                </div>
+                <div className="relative">
+                  <Progress value={levelProgress} className="h-2 bg-card/60 progress-gradient rounded-full" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Cinematic Activity Card */}
+        <div className="bg-card/40 border border-border backdrop-blur-md overflow-hidden rounded-[2.5rem] p-8 flex flex-col justify-between shadow-2xl">
+          <div>
+            <h4 className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground mb-4">Tracking Insights</h4>
+            <p className="text-xs text-zinc-400 mb-6 font-medium">Your current progress as recorded on your watchlist journal.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="text-center p-4 bg-white/5 rounded-2xl border border-white/[0.03]">
+              <span className="text-3xl font-black text-white font-display">{stats.completed}</span>
+              <p className="text-[8px] text-muted-foreground font-black uppercase tracking-widest mt-2">Completed</p>
+            </div>
+            <div className="text-center p-4 bg-white/5 rounded-2xl border border-white/[0.03]">
+              <span className="text-3xl font-black text-white font-display">{stats.avgRating}</span>
+              <p className="text-[8px] text-muted-foreground font-black uppercase tracking-widest mt-2">Avg Badge</p>
+            </div>
+            <div className="text-center p-4 bg-white/5 rounded-2xl border border-white/[0.03]">
+              <span className="text-3xl font-black text-white font-display">{watchlistReviewCount + publicReviews.length}</span>
+              <p className="text-[8px] text-muted-foreground font-black uppercase tracking-widest mt-2">All Reviews</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Reviews & Ratings Content Section */}
+      <div className="space-y-6">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b border-border/45 pb-6">
+          <div>
+            <h3 className="text-2xl font-black tracking-tighter">My Personal Gallery</h3>
+            <p className="text-muted-foreground text-sm font-medium">A dedicated archives of titles you have scored or reviewed.</p>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            {/* Search filter */}
+            <div className="relative flex-1 min-w-[200px] xl:w-64 max-w-sm">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <input 
+                type="text"
+                placeholder="Search reviewed titles..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10 pr-4 h-10 w-full bg-card/40 border border-border rounded-xl text-xs font-medium text-white placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40"
+              />
+            </div>
+            
+            {/* Type selector */}
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as any)}
+              className="h-10 px-3 bg-card/40 border border-border rounded-xl text-xs font-black text-muted-foreground uppercase tracking-widest focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 cursor-pointer"
+            >
+              <option value="all">All Types</option>
+              <option value="movie">Movies Only</option>
+              <option value="tv">TV Shows Only</option>
+              <option value="anime">Anime Only</option>
+            </select>
+
+            {/* Score filter */}
+            <select
+              value={scoreFilter}
+              onChange={(e) => setScoreFilter(e.target.value as any)}
+              className="h-10 px-3 bg-card/40 border border-border rounded-xl text-xs font-black text-muted-foreground uppercase tracking-widest focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 cursor-pointer"
+            >
+              <option value="all">Any Score</option>
+              <option value="high">Excellent (High ★)</option>
+              <option value="mid">Average (Medium ★)</option>
+              <option value="low">Critical (Low ★)</option>
+              <option value="unrated">Untethered (No Stars)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Gallery Tab Switcher */}
+        <div className="flex gap-4 border-b border-border/20 pb-2">
+          <button
+            onClick={() => setGalleryTab('watchlist')}
+            className={`pb-2 text-xs font-black uppercase tracking-wider transition-all border-b-2 leading-none flex items-center gap-1.5 ${
+              galleryTab === 'watchlist' 
+                ? 'border-brand-amber text-primary' 
+                : 'border-transparent text-zinc-400 hover:text-white'
+            }`}
+          >
+            Watchlist Completions ({reviewedItems.length})
+          </button>
+          <button
+            onClick={() => setGalleryTab('public')}
+            className={`pb-2 text-xs font-black uppercase tracking-wider transition-all border-b-2 leading-none flex items-center gap-1.5 ${
+              galleryTab === 'public' 
+                ? 'border-brand-amber text-primary' 
+                : 'border-transparent text-zinc-400 hover:text-white'
+            }`}
+          >
+            Public Community Reviews ({filteredPublicReviews.length})
+            {loadingPublic && <span className="animate-pulse text-[10px] lowercase text-zinc-500 font-bold">(syncing...)</span>}
+          </button>
+        </div>
+
+        {/* Reviewed Lists */}
+        <div className="space-y-6">
+          {galleryTab === 'watchlist' ? (
+            reviewedItems.length > 0 ? (
+              reviewedItems.map((item) => (
+                <div 
+                  key={item.id}
+                  className="bg-card/30 border border-border/40 backdrop-blur-md hover:border-amber-500/10 transition-all group overflow-hidden rounded-[2rem] shadow-md p-6"
+                >
+                  <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+                    {/* Poster Thumbnail */}
+                    <div 
+                      onClick={() => onItemClick({ id: item.externalId, media_type: item.type === 'series' ? 'tv' : (item.type === 'anime' ? 'anime' : 'movie') })}
+                      className="w-24 h-36 bg-zinc-900 rounded-2xl overflow-hidden shrink-0 border border-border/40 cursor-pointer relative shadow-lg group-hover:scale-[1.03] transition-transform"
+                    >
+                      {item.posterUrl ? (
+                        <img 
+                          src={item.posterUrl} 
+                          className="w-full h-full object-cover" 
+                          referrerPolicy="no-referrer"
+                          alt={item.title} 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-zinc-900/60">
+                          <Film className="w-8 h-8 text-zinc-700" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Body Content */}
+                    <div className="flex-1 min-w-0 space-y-4 w-full text-center md:text-left">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          {/* Title & Media Type */}
+                          <h4 
+                            onClick={() => onItemClick({ id: item.externalId, media_type: item.type === 'series' ? 'tv' : (item.type === 'anime' ? 'anime' : 'movie') })}
+                            className="text-xl font-black text-white hover:text-primary transition-colors cursor-pointer inline-block truncate max-w-sm sm:max-w-md font-display"
+                          >
+                            {item.title}
+                          </h4>
+                          <div className="flex items-center justify-center md:justify-start gap-2.5 mt-1">
+                            <span className="bg-primary/10 text-primary text-[8px] font-black tracking-widest uppercase border border-primary/25 rounded-md px-2 py-0.5">
+                              {item.type}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground font-semibold">
+                              Logged: {item.updatedAt ? new Date(item.updatedAt.toMillis ? item.updatedAt.toMillis() : item.updatedAt).toLocaleDateString() : 'Recently'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Interactive Rating */}
+                        <div className="flex items-center gap-2 bg-black/20 p-2 px-3 rounded-xl border border-border/45 w-max self-center">
+                          <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest mr-1">Your Score</span>
+                          <StarRating 
+                            rating={item.rating || 0} 
+                            max={5} 
+                            onRatingChange={(newRating) => updateItemRating(item.id, newRating)} 
+                          />
+                        </div>
+                      </div>
+
+                      {/* Review notes editor or viewer */}
+                      <div className="space-y-3">
+                        {editingId === item.id ? (
+                          <div className="space-y-3">
+                            <textarea
+                              value={editNotes}
+                              onChange={(e) => setEditNotes(e.target.value)}
+                              placeholder="Share your detailed analysis, highlights, flaws, neutral points, and opinions..."
+                              className="w-full bg-black/40 border border-border rounded-xl p-4 text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-primary/40 text-sm min-h-[100px] resize-y leading-relaxed"
+                            />
+                            <div className="flex items-center gap-2">
+                              <Button 
+                                onClick={() => handleSaveNotes(item)}
+                                size="sm"
+                                className="bg-primary hover:bg-amber-600 text-black font-black uppercase text-[10px] tracking-widest rounded-xl h-9 px-4"
+                              >
+                                <Check className="w-3.5 h-3.5 mr-1.5" /> Save Review
+                              </Button>
+                              <Button 
+                                variant="ghost"
+                                onClick={() => setEditingId(null)}
+                                size="sm"
+                                className="text-zinc-400 hover:text-white hover:bg-white/5 rounded-xl h-9 px-4 font-bold uppercase text-[10px] tracking-widest"
+                              >
+                                <X className="w-3.5 h-3.5 mr-1" /> Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {item.notes ? (
+                              <div className="bg-white/[0.02] p-4.5 rounded-2xl border border-border/30 relative text-zinc-300 italic text-sm leading-relaxed max-w-4xl text-left pl-7">
+                                <span className="absolute top-2 left-2 text-3xl text-primary/10 font-serif leading-none">“</span>
+                                <p className="whitespace-pre-wrap">{item.notes}</p>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-zinc-500 italic max-w-4xl text-left">No written review notes. Click "Write Review" below to express your thoughts.</p>
+                            )}
+                            
+                            <div className="flex items-center justify-center md:justify-start gap-3 mt-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleStartEdit(item)}
+                                className="text-primary hover:text-white hover:bg-primary/10 h-8 px-3 rounded-lg font-black uppercase text-[9px] tracking-widest border border-transparent hover:border-primary/15"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 mr-1.5 text-primary" />
+                                {item.notes ? 'Edit Text' : 'Write Review'}
+                              </Button>
+                              
+                              {item.notes && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeleteReviewNotes(item)}
+                                  className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 h-8 px-3 rounded-lg font-black uppercase text-[9px] tracking-widest"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 mr-1.5 text-zinc-600 group-hover:text-red-400/80 transition-colors" />
+                                  Clear Text
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-24 text-center space-y-6">
+                <div className="w-20 h-20 bg-card/40 rounded-full flex items-center justify-center mx-auto border border-border">
+                  <MessageSquare className="w-10 h-10 text-zinc-700" />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xl font-black text-muted-foreground font-display">Your Watchlist Journal is Empty</p>
+                  <p className="text-zinc-600 text-sm max-w-xs mx-auto font-medium">Click "My List" or marked items as completed to write scores and reviews!</p>
+                </div>
+              </div>
+            )
+          ) : (
+            /* PUBLIC COMMUNITY REVIEWS VIEW */
+            loadingPublic && publicReviews.length === 0 ? (
+              <div className="py-24 text-center space-y-4">
+                <RefreshCw className="w-10 h-10 text-brand-amber animate-spin mx-auto" />
+                <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Loading public reviews database...</p>
+              </div>
+            ) : filteredPublicReviews.length > 0 ? (
+              filteredPublicReviews.map((rev) => (
+                <div 
+                  key={rev.id}
+                  className="bg-card/30 border border-border/40 backdrop-blur-md hover:border-amber-500/10 transition-all group overflow-hidden rounded-[2rem] shadow-md p-6"
+                >
+                  <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+                    {/* Poster Thumbnail */}
+                    <div 
+                      onClick={() => onItemClick({ id: rev.contentId, media_type: rev.mediaType === 'series' ? 'tv' : (rev.mediaType === 'anime' ? 'anime' : 'movie') })}
+                      className="w-24 h-36 bg-zinc-900 rounded-2xl overflow-hidden shrink-0 border border-border/40 cursor-pointer relative shadow-lg group-hover:scale-[1.03] transition-transform"
+                    >
+                      {rev.posterUrl ? (
+                        <img 
+                          src={rev.posterUrl} 
+                          className="w-full h-full object-cover" 
+                          referrerPolicy="no-referrer"
+                          alt={rev.title} 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-zinc-900/60">
+                          <Film className="w-8 h-8 text-zinc-700" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Body Content */}
+                    <div className="flex-1 min-w-0 space-y-4 w-full text-center md:text-left">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          {/* Title & Media Type */}
+                          <h4 
+                            onClick={() => onItemClick({ id: rev.contentId, media_type: rev.mediaType === 'series' ? 'tv' : (rev.mediaType === 'anime' ? 'anime' : 'movie') })}
+                            className="text-xl font-black text-white hover:text-primary transition-colors cursor-pointer inline-block truncate max-w-sm sm:max-w-md font-display"
+                          >
+                            {rev.title}
+                          </h4>
+                          <span className="text-zinc-500 text-xs font-semibold ml-2">(Public Review)</span>
+                          <div className="flex items-center justify-center md:justify-start gap-2.5 mt-1">
+                            <span className="bg-amber-500/10 text-amber-500 text-[8px] font-black tracking-widest uppercase border border-amber-500/25 rounded-md px-2 py-0.5">
+                              {rev.mediaType || 'movie'}
+                            </span>
+                            <span className="bg-black/35 text-[9px] font-black px-2 py-0.5 rounded-md border border-white/5 uppercase tracking-wider text-zinc-400">
+                              {rev.type || 'audience'}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground font-semibold">
+                              Published: {rev.createdAt ? new Date(rev.createdAt.toMillis ? rev.createdAt.toMillis() : (rev.createdAt.seconds * 1000 || rev.createdAt)).toLocaleDateString() : 'Recently'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Interactive Rating out of 10 for community review */}
+                        <div className="flex items-center gap-2 bg-black/20 p-2 px-3 rounded-xl border border-border/45 w-max self-center">
+                          <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest mr-1 font-mono">Public Score</span>
+                          <StarRating 
+                            rating={rev.rating || 0} 
+                            max={10} 
+                            readonly={editingPublicId !== rev.id}
+                            onRatingChange={(newRating) => setEditPublicRating(newRating)} 
+                          />
+                        </div>
+                      </div>
+
+                      {/* Review text editor or viewer */}
+                      <div className="space-y-3">
+                        {editingPublicId === rev.id ? (
+                          <div className="space-y-3">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Score & Review thoughts</label>
+                              <div className="flex items-center gap-3 bg-zinc-900/60 p-2.5 rounded-xl border border-border/40 w-max">
+                                <span className="text-xs text-zinc-500 font-bold uppercase tracking-wider">Scale:</span>
+                                <StarRating 
+                                  rating={editPublicRating} 
+                                  max={10} 
+                                  onRatingChange={setEditPublicRating} 
+                                />
+                              </div>
+                            </div>
+
+                            <textarea
+                              value={editPublicText}
+                              onChange={(e) => setEditPublicText(e.target.value)}
+                              placeholder="Update your public review thoughts..."
+                              className="w-full bg-black/40 border border-border rounded-xl p-4 text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-primary/40 text-sm min-h-[100px] resize-y leading-relaxed"
+                            />
+                            
+                            <div className="flex items-center gap-2">
+                              <Button 
+                                onClick={() => handleSavePublicReview(rev)}
+                                size="sm"
+                                className="bg-primary hover:bg-amber-600 text-black font-black uppercase text-[10px] tracking-widest rounded-xl h-9 px-4"
+                              >
+                                <Check className="w-3.5 h-3.5 mr-1.5" /> Save Changes
+                              </Button>
+                              <Button 
+                                variant="ghost"
+                                onClick={() => setEditingPublicId(null)}
+                                size="sm"
+                                className="text-zinc-400 hover:text-white hover:bg-white/5 rounded-xl h-9 px-4 font-bold uppercase text-[10px] tracking-widest"
+                              >
+                                <X className="w-3.5 h-3.5 mr-1" /> Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {rev.text ? (
+                              <div className="bg-white/[0.02] p-4.5 rounded-2xl border border-border/30 relative text-zinc-300 italic text-sm leading-relaxed max-w-4xl text-left pl-7">
+                                <span className="absolute top-2 left-2 text-3xl text-primary/10 font-serif leading-none">“</span>
+                                <p className="whitespace-pre-wrap">{rev.text}</p>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-zinc-500 italic max-w-4xl text-left">No review text entered.</p>
+                            )}
+
+                            {rev.helpful > 0 && (
+                              <p className="text-[10px] text-emerald-400/80 font-black uppercase tracking-wider">
+                                👍 Found helpful by {rev.helpful} users
+                              </p>
+                            )}
+                            
+                            <div className="flex items-center justify-center md:justify-start gap-3 mt-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleStartEditPublic(rev)}
+                                className="text-primary hover:text-white hover:bg-primary/10 h-8 px-3 rounded-lg font-black uppercase text-[9px] tracking-widest border border-transparent hover:border-primary/15"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 mr-1.5 text-primary" />
+                                Edit Review
+                              </Button>
+                              
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeletePublicReview(rev)}
+                                className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 h-8 px-3 rounded-lg font-black uppercase text-[9px] tracking-widest"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 mr-1.5 text-zinc-600 hover:text-red-400 transition-colors" />
+                                Delete Public Review
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-24 text-center space-y-6">
+                <div className="w-20 h-20 bg-card/40 rounded-full flex items-center justify-center mx-auto border border-border">
+                  <MessageSquare className="w-10 h-10 text-zinc-700" />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xl font-black text-muted-foreground font-display">No Public Reviews Found</p>
+                  <p className="text-zinc-600 text-sm max-w-xs mx-auto font-medium">To write public reviews, open any Title Details popup, go to the "Reviews" tab and submit your thoughts!</p>
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Settings Section */}
+      {theme && changeTheme && (
+        <Card className="bg-card/40 border-border backdrop-blur-md overflow-hidden rounded-[2.5rem] shadow-2xl mt-12">
+          <CardContent className="p-8 space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20">
+                <Palette className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-xl font-black tracking-tight">Visual Theme</h3>
+                <p className="text-sm text-muted-foreground font-medium">Choose a style that matches your vibe</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+              {[
+                { id: 'default', label: 'Cinematic Dark', icon: '🎬', color: 'bg-[#0B0B0F]' },
+                { id: 'cyber', label: 'Neon Cyber', icon: '🌌', color: 'bg-background' },
+                { id: 'minimal', label: 'Minimal Clean', icon: '🌿', color: 'bg-[#F8F9FA]' },
+                { id: 'amoled', label: 'AMOLED Black', icon: '🖤', color: 'bg-[#000000]' },
+                { id: 'synthwave', label: 'Synthwave', icon: '🌴', color: 'bg-gradient-to-br from-[#2b1055] to-[#ff003c]' },
+                { id: 'dracula', label: 'Dracula', icon: '🧛', color: 'bg-gradient-to-br from-[#282a36] to-[#ff79c6]' },
+                { id: 'abyss', label: 'Abyss', icon: '🦑', color: 'bg-gradient-to-br from-[#000c18] to-[#39cccc]' },
+                { id: 'custom', label: 'Custom Theme', icon: '🎨', color: 'bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500' },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => changeTheme(t.id as any)}
+                  className={`relative group p-6 rounded-3xl border-2 transition-all text-left ${
+                    theme === t.id 
+                      ? 'border-primary bg-primary/5 shadow-lg shadow-primary/5 scale-[1.02]' 
+                      : 'border-border hover:border-white/20 bg-white/5'
+                  }`}
+                >
+                  <div className="flex flex-col gap-4">
+                    <span className="text-3xl drop-shadow-lg">{t.icon}</span>
+                    <div>
+                      <p className="text-sm font-black tracking-tight">{t.label}</p>
+                      <div className={`w-full h-1.5 mt-3 rounded-md ${t.color} border border-border`} />
+                    </div>
+                  </div>
+                  {theme === t.id && (
+                    <div className="absolute top-3 right-3">
+                      <div className="bg-primary p-1 rounded-md shadow-lg">
+                        <CheckCircle2 className="w-4 h-4 text-primary-foreground" />
+                      </div>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {theme === 'custom' && customThemeColors && handleCustomColorChange && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="mt-6 p-6 bg-white/5 rounded-3xl border border-border space-y-6"
+              >
+                <h4 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Customize Colors</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Background</label>
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="color" 
+                        value={customThemeColors.background}
+                        onChange={(e) => handleCustomColorChange('background', e.target.value)}
+                        className="w-10 h-10 rounded cursor-pointer bg-transparent border-0 p-0"
+                      />
+                      <span className="text-sm font-mono text-zinc-300">{customThemeColors.background}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Primary Accent</label>
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="color" 
+                        value={customThemeColors.primary}
+                        onChange={(e) => handleCustomColorChange('primary', e.target.value)}
+                        className="w-10 h-10 rounded cursor-pointer bg-transparent border-0 p-0"
+                      />
+                      <span className="text-sm font-mono text-zinc-300">{customThemeColors.primary}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Text (Foreground)</label>
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="color" 
+                        value={customThemeColors.foreground}
+                        onChange={(e) => handleCustomColorChange('foreground', e.target.value)}
+                        className="w-10 h-10 rounded cursor-pointer bg-transparent border-0 p-0"
+                      />
+                      <span className="text-sm font-mono text-zinc-300">{customThemeColors.foreground}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Card Background</label>
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="color" 
+                        value={customThemeColors.card}
+                        onChange={(e) => handleCustomColorChange('card', e.target.value)}
+                        className="w-10 h-10 rounded cursor-pointer bg-transparent border-0 p-0"
+                      />
+                      <span className="text-sm font-mono text-zinc-300">{customThemeColors.card}</span>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+    </div>
+  );
+}
+
 // --- Main App Component ---
 
 function StatsDashboard({ items, stats, avgRating }: { items: MediaItem[], stats: any, avgRating: string | number }) {
@@ -4118,7 +5049,7 @@ function MediaTracker() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [reminders, setReminders] = useState<any[]>([]);
   const [globalMood, setGlobalMood] = useState<Mood>('all');
-  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'watchlist' | 'history' | 'stats' | 'upcoming' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'watchlist' | 'history' | 'stats' | 'upcoming' | 'settings' | 'profile'>('home');
   const [search, setSearch] = useState('');
   
   useEffect(() => {
@@ -4175,7 +5106,7 @@ function MediaTracker() {
     }
   };
 
-  const [theme, setTheme] = useState<'default' | 'cyber' | 'minimal' | 'amoled' | 'custom'>(() => {
+  const [theme, setTheme] = useState<'default' | 'cyber' | 'minimal' | 'amoled' | 'synthwave' | 'dracula' | 'abyss' | 'custom'>(() => {
     if (typeof window !== 'undefined') {
       return (localStorage.getItem('cineai-theme') as any) || 'default';
     }
@@ -4223,14 +5154,16 @@ function MediaTracker() {
     setSelectedItem(item);
     setIsDetailModalOpen(true);
 
-    const genreThemeMap: Record<string, 'default' | 'cyber' | 'minimal' | 'amoled'> = {
+    const genreThemeMap: Record<string, 'default' | 'cyber' | 'minimal' | 'amoled' | 'synthwave' | 'dracula' | 'abyss'> = {
       'Action': 'cyber',
       'Science Fiction': 'cyber',
-      'Sci-Fi': 'cyber',
-      'Thriller': 'amoled',
+      'Sci-Fi': 'abyss',
+      'Thriller': 'dracula',
       'Horror': 'amoled',
       'Crime': 'amoled',
-      'Romance': 'minimal'
+      'Romance': 'minimal',
+      'Music': 'synthwave',
+      'Animation': 'synthwave'
     };
 
     const genreIds = item.genre_ids || item.genreIds || [];
@@ -4929,6 +5862,8 @@ function MediaTracker() {
   };
 
   const markCompleted = async (item: MediaItem) => {
+    setNewRating(item.rating || 0);
+    setNewNotes(item.notes || '');
     setRatingItem(item);
   };
 
@@ -5028,6 +5963,7 @@ function MediaTracker() {
       const updates: any = {
         status: 'completed',
         rating: rating,
+        notes: newNotes,
         updatedAt: serverTimestamp(),
       };
       if (ratingItem.type !== 'movie' && ratingItem.totalEpisodes) {
@@ -5035,6 +5971,8 @@ function MediaTracker() {
       }
       await updateDoc(doc(db, 'mediaItems', ratingItem.id), updates);
       setRatingItem(null);
+      setNewNotes('');
+      setNewRating(0);
       toast.success(`Marked ${ratingItem.title} as completed!`);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `mediaItems/${ratingItem.id}`);
@@ -5093,14 +6031,15 @@ function MediaTracker() {
               { id: 'movie', label: 'Movies' },
               { id: 'upcoming', label: 'New & Popular' },
               { id: 'watchlist', label: 'My List' },
+              { id: 'profile', label: 'My Profile' },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => navigateWithAnimation(tab.id as any)}
                 className={`flex items-center gap-2 px-4 py-2 text-[14px] font-medium transition-all duration-300 ${
                   activeTab === tab.id 
-                    ? 'text-white' 
-                    : 'text-zinc-300 hover:text-zinc-400'
+                    ? 'text-white font-black' 
+                    : 'text-zinc-300 hover:text-white hover:bg-white/5'
                 }`}
               >
                 
@@ -5136,8 +6075,11 @@ function MediaTracker() {
               <RefreshCw className="w-5 h-5" />
             </Button>
             <div className="hidden md:flex items-center gap-4 pl-6 border-l border-border">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-black text-white leading-none mb-1">{user?.displayName}</p>
+              <div 
+                onClick={() => navigateWithAnimation('profile')}
+                className="text-right hidden sm:block cursor-pointer hover:opacity-80 transition-all group"
+              >
+                <p className="text-sm font-black text-white group-hover:text-primary transition-colors leading-none mb-1">{user?.displayName}</p>
                 <div className="flex flex-col items-end gap-1.5">
                   <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest">Level {level} Cinephile</p>
                   <Progress value={levelProgress} className="w-24 h-1.5 bg-card progress-gradient" />
@@ -5163,9 +6105,9 @@ function MediaTracker() {
         {[
           { id: 'home', icon: Sparkles, label: 'Home' },
           { id: 'explore', icon: Compass, label: 'Explore' },
-          { id: 'upcoming', icon: Calendar, label: 'Soon' },
           { id: 'watchlist', icon: Clock, label: 'My List' },
           { id: 'history', icon: History, label: 'History' },
+          { id: 'profile', icon: User, label: 'Profile' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -5488,6 +6430,9 @@ function MediaTracker() {
                 
                 {/* Binge Packs */}
                 <BingePacksRow onItemClick={handleSelectItem} />
+
+                {/* Community Recommended */}
+                <CommunityRecommendedRow onItemClick={handleSelectItem} />
 
                 {/* Top 10 This Month */}
                 <GenreRow 
@@ -5982,6 +6927,9 @@ function MediaTracker() {
                       { id: 'cyber', label: 'Neon Cyber', icon: '🌌', color: 'bg-background' },
                       { id: 'minimal', label: 'Minimal Clean', icon: '🌿', color: 'bg-[#F8F9FA]' },
                       { id: 'amoled', label: 'AMOLED Black', icon: '🖤', color: 'bg-[#000000]' },
+                      { id: 'synthwave', label: 'Synthwave', icon: '🌴', color: 'bg-gradient-to-br from-[#2b1055] to-[#ff003c]' },
+                      { id: 'dracula', label: 'Dracula', icon: '🧛', color: 'bg-gradient-to-br from-[#282a36] to-[#ff79c6]' },
+                      { id: 'abyss', label: 'Abyss', icon: '🦑', color: 'bg-gradient-to-br from-[#000c18] to-[#39cccc]' },
                       { id: 'custom', label: 'Custom Theme', icon: '🎨', color: 'bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500' },
                     ].map((t) => (
                       <button
@@ -6109,6 +7057,30 @@ function MediaTracker() {
 
           {activeTab === 'stats' && (
             <StatsDashboard items={items} stats={stats} avgRating={avgRating ?? 0} />
+          )}
+
+          {activeTab === 'profile' && (
+            <motion.div
+              key="profile"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.3 }}
+            >
+              <ProfileView 
+                user={user}
+                items={items}
+                level={level}
+                levelProgress={levelProgress}
+                stats={stats}
+                onItemClick={handleSelectItem}
+                updateItemRating={updateItemRating}
+                theme={theme}
+                changeTheme={changeTheme as any}
+                customThemeColors={customThemeColors}
+                handleCustomColorChange={handleCustomColorChange}
+              />
+            </motion.div>
           )}
         </AnimatePresence>
 
@@ -6545,6 +7517,153 @@ export function PicksForYouRow({ onItemClick }: { onItemClick: (item: any) => vo
                  </div>
              </div>
          ))}
+      </div>
+    </div>
+  );
+}
+
+export function CommunityRecommendedRow({ onItemClick }: { onItemClick: (item: any) => void }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchCommunityFavs() {
+      try {
+        let snapshot;
+        try {
+          // Optimized query (requires collection group index on rating)
+          const q = query(
+            collectionGroup(db, 'reviews'),
+            where('rating', '>=', 8),
+            orderBy('rating', 'desc'),
+            limit(20)
+          );
+          snapshot = await getDocs(q);
+        } catch (err: any) {
+          console.warn("Filtered query failed (likely missing index), falling back to unindexed:", err);
+          // Fallback query without where/orderBy
+          const fallbackQ = query(collectionGroup(db, 'reviews'), limit(50));
+          snapshot = await getDocs(fallbackQ);
+        }
+        
+        let rawTmdbs = snapshot.docs.map(docSnap => {
+          return {
+            contentId: docSnap.ref.parent?.parent?.id || '',
+            ...docSnap.data()
+          };
+        }).filter(r => r.contentId);
+        
+        // Client-side filtering in case we used the fallback
+        rawTmdbs = rawTmdbs.filter((r: any) => typeof r.rating === 'number' && r.rating >= 8);
+        rawTmdbs.sort((a: any, b: any) => b.rating - a.rating);
+
+        // Group by contentId and pick top 10 unique
+        const uniqueIds = Array.from(new Set(rawTmdbs.map(r => r.contentId))).slice(0, 10);
+        
+        if (uniqueIds.length === 0) {
+          setLoading(false);
+          return;
+        }
+
+        const resolved = await Promise.all(uniqueIds.map(async (idStr: string) => {
+          try {
+            const isAnime = idStr.startsWith('jikan_');
+            const numericId = parseInt(idStr.replace('jikan_', ''), 10);
+            if (isNaN(numericId)) return null;
+
+            if (isAnime) {
+              const anime = await jikanService.getAnimeDetails(numericId).catch(() => null);
+              if (anime && anime.title) {
+                return {
+                   ...anime,
+                   id: idStr,
+                   title: anime.title_english || anime.title,
+                   poster_path: anime.images?.jpg?.large_image_url || anime.poster_path,
+                   media_type: 'anime',
+                   vote_average: anime.score
+                };
+              }
+            } else {
+              // Try movie then TV
+              let details = await tmdbService.getDetails(numericId, 'movie', true).catch(() => null);
+              if (details && (details.title || details.name)) {
+                return { ...details, media_type: 'movie', id: idStr }; // retain original string ID for consistency
+              }
+              details = await tmdbService.getDetails(numericId, 'tv', true).catch(() => null);
+              if (details && (details.title || details.name)) {
+                return { ...details, media_type: 'tv', id: idStr };
+              }
+            }
+          } catch (e) {}
+          return null;
+        }));
+
+        setItems(resolved.filter(i => Boolean(i)));
+      } catch (err) {
+        console.error("Error fetching community favs:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchCommunityFavs();
+  }, []);
+
+  if (loading || items.length === 0) return null;
+
+  return (
+    <div className="mb-14">
+      <div className="flex items-center gap-3 mb-6">
+        <h3 className="text-2xl font-black font-display tracking-tighter text-white flex items-center gap-2">
+          🌟 Community Favorites
+        </h3>
+        <p className="hidden md:block text-xs font-bold text-zinc-500 uppercase tracking-widest mt-1">Highly Rated</p>
+      </div>
+
+      <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide snap-x">
+        {items.map((item, index) => {
+          const poster = item.media_type === 'anime' && typeof item.poster_path === 'string' && item.poster_path.startsWith('http')
+            ? item.poster_path
+            : item.poster_path
+            ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
+            : undefined;
+
+          return (
+            <motion.div
+              key={item.id + index}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.05 }}
+              onClick={() => onItemClick({ id: item.id.replace('jikan_', ''), media_type: item.media_type })}
+              className="w-[140px] md:w-[160px] shrink-0 snap-start cursor-pointer group"
+            >
+              <div className="w-full aspect-[2/3] rounded-2xl overflow-hidden bg-white/5 border border-white/5 relative group-hover:border-primary/50 transition-colors shadow-lg">
+                {poster ? (
+                  <img
+                    src={poster}
+                    alt={item.title || item.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Film className="w-8 h-8 text-white/20" />
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent">
+                   <div className="absolute bottom-3 left-3 flex gap-2">
+                      <span className="bg-primary/90 text-black text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded shadow-lg backdrop-blur-sm">
+                         {item.media_type}
+                      </span>
+                   </div>
+                </div>
+              </div>
+              <h4 className="mt-3 text-sm font-bold truncate group-hover:text-primary transition-colors">{item.title || item.name}</h4>
+              <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest flex items-center gap-1">
+                 <span className="text-yellow-400">★</span> {item.vote_average ? item.vote_average.toFixed(1) : 'NR'} 
+              </p>
+            </motion.div>
+          );
+        })}
       </div>
     </div>
   );

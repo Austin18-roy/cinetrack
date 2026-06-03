@@ -92,7 +92,7 @@ async function smartFetch(url: string) {
   return { ok: res.ok, data };
 }
 
-async function fetchTMDB(endpoint: string, params: Record<string, string> = {}) {
+async function fetchTMDB(endpoint: string, params: Record<string, string> = {}, silent: boolean = false) {
   if (!API_KEY) {
     console.warn('TMDb API key is missing. Discovery features will be disabled.');
     return { results: [] };
@@ -111,8 +111,10 @@ async function fetchTMDB(endpoint: string, params: Record<string, string> = {}) 
     const data = result.data || result;
     
     if (result.ok === false) {
-      console.error('TMDb API Error:', data.status_message || data);
-      toast.error(`TMDb API Error: ${data.status_message || 'Could not fetch data'}`, { id: 'tmdb-error' });
+      if (!silent) {
+        console.error('TMDb API Error:', data.status_message || data);
+        toast.error(`TMDb API Error: ${data.status_message || 'Could not fetch data'}`, { id: 'tmdb-error' });
+      }
       return { results: [] };
     }
     
@@ -295,9 +297,9 @@ export const tmdbService = {
       return null;
     }
   },
-  getDetails: async (id: number | string, type: 'movie' | 'tv') => {
+  getDetails: async (id: number | string, type: 'movie' | 'tv', silent: boolean = false) => {
     if (!id || id === 'undefined' || id === 'null') return null;
-    const data = await fetchTMDB(`/${type}/${id}`, { append_to_response: 'credits,videos,recommendations,similar,release_dates,content_ratings,external_ids,keywords,reviews,watch/providers' });
+    const data = await fetchTMDB(`/${type}/${id}`, { append_to_response: 'credits,videos,recommendations,similar,release_dates,content_ratings,external_ids,keywords,reviews,watch/providers' }, silent);
     return data;
   },
   getRecommendations: async (id: number, type: 'movie' | 'tv') => {

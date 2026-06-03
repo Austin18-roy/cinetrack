@@ -10,6 +10,7 @@ interface Review {
   rating: number;
   text: string;
   helpful: number;
+  unhelpful: number;
   createdAt: any;
   type: "audience" | "critic";
 }
@@ -57,6 +58,7 @@ export function ReviewsPanel({ contentId }: { contentId: string }) {
         rating,
         text,
         helpful: 0,
+        unhelpful: 0,
         type: userRole,
         createdAt: serverTimestamp()
       };
@@ -85,12 +87,28 @@ export function ReviewsPanel({ contentId }: { contentId: string }) {
     }
   };
 
+  const markUnhelpful = async (reviewId: string) => {
+    if (!auth.currentUser) return alert('Please sign in to vote');
+    try {
+      const safeContentId = String(contentId);
+      const ref = doc(db, "reviews", safeContentId, "reviews", reviewId);
+      await updateDoc(ref, {
+        unhelpful: increment(1)
+      });
+    } catch (error) {
+       handleFirestoreError(error, OperationType.UPDATE, `/reviews/${contentId}/reviews/${reviewId}`);
+    }
+  };
+
   const sortReviews = (reviewsToSort: Review[]) => {
     if (sort === "newest") {
       return [...reviewsToSort].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     }
     if (sort === "highest") {
       return [...reviewsToSort].sort((a, b) => b.rating - a.rating);
+    }
+    if (sort === "lowest") {
+      return [...reviewsToSort].sort((a, b) => a.rating - b.rating);
     }
     if (sort === "helpful") {
       return [...reviewsToSort].sort((a, b) => b.helpful - a.helpful);
@@ -183,8 +201,9 @@ export function ReviewsPanel({ contentId }: { contentId: string }) {
              onChange={(e) => setSort(e.target.value)}
              className="bg-[#111] border border-white/10 text-white rounded-md px-3 py-1.5 text-xs font-bold uppercase tracking-widest"
            >
-             <option value="newest">Newest</option>
-             <option value="highest">Highest Rating</option>
+             <option value="newest">Most Recent</option>
+             <option value="highest">Highest Rated</option>
+             <option value="lowest">Lowest Rated</option>
              <option value="helpful">Most Helpful</option>
            </select>
         </div>
@@ -210,12 +229,20 @@ export function ReviewsPanel({ contentId }: { contentId: string }) {
               <p className="text-zinc-300 text-sm leading-relaxed mb-4 mt-2 whitespace-pre-wrap">{r.text}</p>
               
               <div className="flex justify-between items-center text-xs text-zinc-500">
-                 <button 
-                   onClick={() => markHelpful(r.id)}
-                   className="hover:text-white flex items-center transition bg-white/5 px-3 py-1.5 rounded-full"
-                 >
-                   👍 Helpful ({r.helpful})
-                 </button>
+                 <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => markHelpful(r.id)}
+                      className="hover:text-white flex items-center transition bg-white/5 px-3 py-1.5 rounded-full"
+                    >
+                      👍 Mark as Helpful ({r.helpful || 0})
+                    </button>
+                    <button 
+                      onClick={() => markUnhelpful(r.id)}
+                      className="hover:text-white flex items-center transition bg-white/5 px-3 py-1.5 rounded-full"
+                    >
+                      👎 Dislike ({r.unhelpful || 0})
+                    </button>
+                 </div>
                  <small>{r.createdAt?.seconds ? new Date(r.createdAt.seconds * 1000).toLocaleDateString() : 'Just now'}</small>
               </div>
             </motion.div>

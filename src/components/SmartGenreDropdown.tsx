@@ -45,7 +45,7 @@ export function SmartGenreDropdown({
             const genAI = new GoogleGenAI({ apiKey });
             const prompt = `User query: "${searchQuery}". Available genres: ${genres.map(g => g.name).join(', ')}. Which 1-3 genres fit best? Return ONLY a valid JSON array of strings exactly matching the available genres. No markdown, no other text.`;
             const response = await genAI.models.generateContent({
-               model: 'gemini-2.5-flash',
+               model: 'gemini-3.5-flash',
                contents: prompt
             });
             suggestedStr = response.text || "[]";

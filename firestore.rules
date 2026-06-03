@@ -76,7 +76,7 @@ service cloud.firestore {
     }
 
     function isValidReview(data) {
-      let allowedFields = ['userId', 'username', 'rating', 'text', 'helpful', 'type', 'createdAt'];
+      let allowedFields = ['userId', 'username', 'rating', 'text', 'helpful', 'unhelpful', 'type', 'createdAt'];
       return data.keys().hasAll(['userId', 'rating', 'text', 'type', 'createdAt']) &&
              data.keys().hasOnly(allowedFields) &&
              data.userId == request.auth.uid &&
@@ -84,6 +84,7 @@ service cloud.firestore {
              data.rating is number && data.rating >= 1 && data.rating <= 10 &&
              data.text is string && data.text.size() <= 2000 &&
              (!('helpful' in data) || data.helpful is number) &&
+             (!('unhelpful' in data) || data.unhelpful is number) &&
              data.type in ['audience', 'critic'] &&
              data.createdAt is timestamp;
     }
@@ -111,12 +112,14 @@ service cloud.firestore {
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && isValidReminder(incoming());
     }
 
-    match /reviews/{contentId}/reviews/{reviewId} {
+    match /{path=**}/reviews/{reviewId} {
       allow read: if true; // Reviews are public
-      allow create: if isAuthenticated() && isValidId(contentId) && isValidId(reviewId) && isValidReview(incoming());
+      allow create: if isAuthenticated() && isValidReview(incoming());
       allow update: if isAuthenticated() && (
-        (isDocOwner() && isValidReview(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'text', 'type', 'updatedAt'])) ||
-        (incoming().diff(existing()).affectedKeys().hasOnly(['helpful']) && incoming().helpful == existing().helpful + 1)
+        (isDocOwner() && isValidReview(incoming()) && incoming().diff(resource.data).affectedKeys().hasOnly(['rating', 'text', 'type', 'updatedAt'])) ||
+        (incoming().diff(resource.data).affectedKeys().hasOnly(['helpful']) && incoming().helpful == resource.data.helpful + 1) ||
+        (incoming().diff(resource.data).affectedKeys().hasOnly(['unhelpful']) && incoming().unhelpful == resource.data.unhelpful + 1) ||
+        (incoming().diff(resource.data).affectedKeys().hasOnly(['helpful', 'unhelpful']) && incoming().helpful == resource.data.helpful + 1 && incoming().unhelpful == resource.data.unhelpful + 1) 
       );
       allow delete: if isDocOwner();
     }
