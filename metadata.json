@@ -1,5 +1,6 @@
 {
   "name": "CineTrack",
   "description": "A comprehensive media tracker for monitoring progress across Movies, TV Series, and Anime with personal ratings and AI-powered insights.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -47,7 +47,7 @@ service cloud.firestore {
     }
 
     function isValidMediaItem(data) {
-      let allowedFields = ['userId', 'title', 'type', 'status', 'currentEpisode', 'totalEpisodes', 'rating', 'notes', 'posterUrl', 'externalId', 'source', 'createdAt', 'updatedAt', 'genreIds', 'watchedEpisodes', 'lastWatchedAt', 'trailer_key', 'seasons', 'hypeScore', 'recommendationReason'];
+      let allowedFields = ['userId', 'title', 'type', 'status', 'currentEpisode', 'totalEpisodes', 'rating', 'notes', 'posterUrl', 'externalId', 'source', 'createdAt', 'updatedAt', 'genreIds', 'watchedEpisodes', 'lastWatchedAt', 'trailer_key', 'seasons', 'hypeScore', 'recommendationReason', 'language', 'favoriteEpisodes'];
       return data.keys().hasOnly(allowedFields) &&
              data.userId == request.auth.uid &&
              data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
@@ -59,7 +59,9 @@ service cloud.firestore {
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
              (!('posterUrl' in data) || (data.posterUrl is string && data.posterUrl.size() <= 500)) &&
              (!('externalId' in data) || (data.externalId is number || data.externalId is string)) &&
-             (!('source' in data) || (data.source in ['tmdb', 'manual'])) &&
+             (!('source' in data) || (data.source in ['tmdb', 'manual', 'jikan'])) &&
+             (!('language' in data) || data.language is string) &&
+             (!('favoriteEpisodes' in data) || data.favoriteEpisodes is list) &&
              data.createdAt is timestamp &&
              data.updatedAt is timestamp;
     }

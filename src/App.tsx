@@ -5049,7 +5049,7 @@ function MediaTracker() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [reminders, setReminders] = useState<any[]>([]);
   const [globalMood, setGlobalMood] = useState<Mood>('all');
-  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'watchlist' | 'history' | 'stats' | 'upcoming' | 'settings' | 'profile'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'watchlist' | 'history' | 'stats' | 'upcoming' | 'settings' | 'profile' | 'movie' | 'tv'>('home');
   const [search, setSearch] = useState('');
   
   useEffect(() => {
@@ -6024,13 +6024,14 @@ function MediaTracker() {
             </h1>
           </div>
 
-          <nav className="hidden lg:flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-border backdrop-blur-md">
+          <nav className="hidden md:flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-border backdrop-blur-md">
             {[
               { id: 'home', label: 'Home' },
               { id: 'tv', label: 'TV Shows' },
               { id: 'movie', label: 'Movies' },
               { id: 'upcoming', label: 'New & Popular' },
               { id: 'watchlist', label: 'My List' },
+              { id: 'history', label: 'History' },
               { id: 'profile', label: 'My Profile' },
             ].map((tab) => (
               <button
@@ -6466,7 +6467,7 @@ function MediaTracker() {
             </motion.div>
           )}
 
-          {(activeTab === 'movie' || activeTab === 'tv') && (
+          {(activeTab === 'movie' || activeTab === 'tv' || activeTab === 'explore') && (
             <motion.div
               key="explore"
               initial={{ opacity: 0, x: 20 }}
@@ -6478,7 +6479,7 @@ function MediaTracker() {
                 onItemClick={(item) => handleSelectItem(item)} 
                 currentMood={globalMood}
                 onMoodChange={setGlobalMood}
-                defaultType={activeTab}
+                defaultType={activeTab === 'explore' ? 'movie' : activeTab}
               />
             </motion.div>
           )}
