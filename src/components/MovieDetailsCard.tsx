@@ -30,7 +30,7 @@ export function MovieDetailsCard({ item, aiVerdict, trailerKey, onWatchTrailer }
   const [hovered, setHovered] = useState(false);
   const timer = useRef<NodeJS.Timeout | null>(null);
 
-  const watchlistItem = watchlistItems.find((i: any) => i.externalId === (item.id || item.mal_id));
+  const watchlistItem = watchlistItems.find((i: any) => String(i.externalId) === String(item.id || item.mal_id));
   const isSaved = !!watchlistItem;
 
   function handleEnter() {

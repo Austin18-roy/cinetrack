@@ -225,7 +225,7 @@ export function EpisodeHeatmap({ itemId, seasons, title }: { itemId: number | st
              <div>
                <h4 className="text-sm font-black uppercase tracking-widest text-[#aaa] mb-4">Pacing & Flow ({activeSeason})</h4>
                <div className="w-full h-64 bg-black/40 rounded-2xl p-4 border border-white/5">
-                 <ResponsiveContainer width="100%" height="100%" minWidth={1}>
+                 <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                    <LineChart data={heatmapArray}>
                      <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
                      <XAxis dataKey="episode" tickFormatter={(v) => `E${v}`} stroke="#666" tick={{fill: '#888', fontSize: 11}} axisLine={false} tickLine={false} />
@@ -247,7 +247,7 @@ export function EpisodeHeatmap({ itemId, seasons, title }: { itemId: number | st
                  <div>
                     <h4 className="text-sm font-black uppercase tracking-widest text-[#aaa] mb-4">Season vs Season</h4>
                     <div className="w-full h-64 bg-black/40 rounded-2xl p-4 border border-white/5">
-                       <ResponsiveContainer width="100%" height="100%" minWidth={1}>
+                       <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                          <LineChart data={allSeasons}>
                            <XAxis dataKey="episode" tickFormatter={(v) => `E${v}`} stroke="#666" tick={{fill: '#888', fontSize: 11}} axisLine={false} tickLine={false} />
                            <YAxis domain={['dataMin - 0.5', 10]} stroke="#666" tick={{fill: '#888', fontSize: 11}} axisLine={false} tickLine={false} />

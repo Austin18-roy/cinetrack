@@ -82,7 +82,7 @@ export function SeasonComparisonGraph({ itemId, seasons }: { itemId: number | st
           )}
        </div>
        <div className="h-48 w-full">
-         <ResponsiveContainer width="100%" height="100%" minWidth={1}>
+         <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
            <LineChart data={data}>
              <XAxis dataKey="episode" stroke="#333" tick={{ fill: '#666', fontSize: 10 }} />
              <YAxis domain={['dataMin - 0.5', 10]} stroke="#333" tick={{ fill: '#666', fontSize: 10 }} />

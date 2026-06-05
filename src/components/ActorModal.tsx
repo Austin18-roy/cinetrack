@@ -47,7 +47,7 @@ export function ActorTimeline({ data }: { data: any[] }) {
     <div className="mt-8">
       <h3 className="text-xl font-bold text-white mb-4">Career Timeline</h3>
       <div className="w-full h-[250px]">
-        <ResponsiveContainer width="100%" height="100%" minWidth={1}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
           <LineChart data={data} margin={{ top: 20, right: 20, left: 0, bottom: 0 }}>
             <XAxis dataKey="year" stroke="#666" tick={{fill: '#666', fontSize: 12}} tickLine={false} axisLine={false} />
             <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 2 }} />

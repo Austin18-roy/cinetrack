@@ -376,6 +376,79 @@ export const smartRefreshManager = {
   }
 };
 
+const getDirectProviderUrl = (providerName: string, title: string) => {
+  if (!providerName || !title) return null;
+  const pName = providerName.toLowerCase();
+  
+  // Clean up title: remove subtitles, season info in parenthesis/brackets, and special characters
+  const cleanTitle = title
+    .replace(/\s*[([].*?[\])]/g, '') // Remove parenthesized words like (Season 1) or [Special Edition]
+    .replace(/[:\-–—]/g, ' ') // Replace punctuation with space
+    .replace(/[^a-zA-Z0-9\s]/g, '') // Remove alphanumeric symbols to prevent search string corruption
+    .replace(/\s+/g, ' ')
+    .trim();
+    
+  const query = encodeURIComponent(cleanTitle);
+  
+  if (/(amazon\s*prime|prime\s*video|primevideo)/i.test(pName)) {
+    return `https://www.primevideo.com/search/ref=atv_sr_filter?phrase=${query}`;
+  }
+  if (/netflix/i.test(pName)) {
+    return `https://www.netflix.com/search?q=${query}`;
+  }
+  if (/(disney\+?|hotstar)/i.test(pName)) {
+    return `https://www.hotstar.com/in/search?q=${query}`;
+  }
+  if (/(hbo\s*max|hbo|max)/i.test(pName)) {
+    // Max search page supports simple hyphens or query slugs
+    const maxQuery = encodeURIComponent(cleanTitle.toLowerCase().replace(/\s+/g, '-'));
+    return `https://www.max.com/search/${maxQuery}/`;
+  }
+  if (/(apple\s*tv|itunes)/i.test(pName)) {
+    return `https://tv.apple.com/search?term=${query}`;
+  }
+  if (/hulu/i.test(pName)) {
+    return `https://www.hulu.com/search?q=${query}`;
+  }
+  if (/peacock/i.test(pName)) {
+    return `https://www.peacocktv.com/watch/search?q=${query}`;
+  }
+  if (/youtube/i.test(pName)) {
+    return `https://www.youtube.com/results?search_query=${query}+watch`;
+  }
+  if (/paramount/i.test(pName)) {
+    return `https://www.paramountplus.com/search/?q=${query}`;
+  }
+  if (/sony\s*liv/i.test(pName)) {
+    return `https://www.sonyliv.com/search?q=${query}`;
+  }
+  if (/crunchyroll/i.test(pName)) {
+    return `https://www.crunchyroll.com/search?q=${query}`;
+  }
+  if (/(jio\s*cinema|jiocinema)/i.test(pName)) {
+    return `https://www.jiocinema.com/search/${query}`;
+  }
+  if (/zee/i.test(pName)) {
+    return `https://www.zee5.com/search?q=${query}`;
+  }
+  if (/plex/i.test(pName)) {
+    return `https://app.plex.tv/desktop/#!/search?query=${query}`;
+  }
+  if (/(google\s*play|play\s*movies)/i.test(pName)) {
+    return `https://play.google.com/store/search?q=${query}&c=movies`;
+  }
+  if (/tubi/i.test(pName)) {
+    return `https://tubitv.com/search/${query}`;
+  }
+  if (/pluto/i.test(pName)) {
+    return `https://plutotv.com/en/search?q=${query}`;
+  }
+  if (/(vudu|fandango)/i.test(pName)) {
+    return `https://www.vudu.com/content/movies/search?searchString=${query}`;
+  }
+  return null;
+};
+
 // --- Components ---
 
 function StarRating({ 
@@ -793,9 +866,30 @@ function DetailModal({
   const [scrollY, setScrollY] = useState(0);
   const [communityRating, setCommunityRating] = useState<number | null>(null);
   const [totalReviewsCount, setTotalReviewsCount] = useState<number>(0);
+  const [justAdded, setJustAdded] = useState(false);
 
   const { watchlistItems, updateItemRating } = useWatchlist();
-  const watchlistItem = item ? watchlistItems.find(i => i.externalId === (item.id || item.mal_id)) : null;
+  const watchlistItem = item ? watchlistItems.find(i => String(i.externalId) === String(item.id || item.mal_id)) : null;
+
+  const getProvidersCollection = () => {
+    const provs = details?.['watch/providers']?.results?.[userCountry] || details?.['watch/providers']?.results?.['US'] || details?.['watch/providers']?.results?.['IN'];
+    if (!provs) return [];
+    
+    const list = [
+      ...(provs.flatrate || []),
+      ...(provs.free || []),
+      ...(provs.ads || []),
+      ...(provs.rent || []),
+      ...(provs.buy || [])
+    ];
+    
+    const seen = new Set<number>();
+    return list.filter((p: any) => {
+      if (seen.has(p.provider_id)) return false;
+      seen.add(p.provider_id);
+      return true;
+    }).slice(0, 5);
+  };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setScrollY(e.currentTarget.scrollTop);
@@ -807,6 +901,7 @@ function DetailModal({
     } else {
        applyGenreTheme(null);
     }
+    setJustAdded(false);
   }, [isOpen, item]);
 
   useEffect(() => {
@@ -1070,11 +1165,18 @@ function DetailModal({
                 )}
                 <button 
                   className="btn-action w-auto px-6 font-bold flex items-center gap-2 rounded-full border-2 border-white/20 bg-white/5 hover:bg-white/10"
-                  onClick={() => onAdd(item)}
+                  onClick={async () => {
+                    setJustAdded(true);
+                    try {
+                      await onAdd(item);
+                    } catch (e) {
+                      setJustAdded(false);
+                    }
+                  }}
                 >
-                   {watchlistItem ? (
+                   {watchlistItem || justAdded ? (
                      <>
-                        <Check className="w-5 h-5 text-primary" /> Update Watchlist
+                        <Check className="w-5 h-5 text-primary" /> Added
                      </>
                    ) : (
                      <>
@@ -1174,36 +1276,41 @@ function DetailModal({
                     </div>
 
                    {/* WHERE TO WATCH */}
-                   {details?.['watch/providers']?.results?.[userCountry]?.flatrate && (
+                   {getProvidersCollection().length > 0 && (
                      <div className="flex flex-col md:items-end">
                         <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-2">📺 Where to Watch</span>
                         <div className="flex gap-2">
-                          {details['watch/providers'].results[userCountry].flatrate.slice(0, 4).map((p: any) => (
-                             <button
-                               key={p.provider_id}
-                               className="w-10 h-10 rounded-lg overflow-hidden hover:scale-110 transition-transform shadow-lg group relative"
-                               title={`Open in ${p.provider_name}`}
-                               onClick={() => {
-                                 const webUrl = details['watch/providers'].results[userCountry].link;
-                                 const providerName = p.provider_name.toLowerCase();
-                                 const deepLinks: Record<string, string> = {
-                                    netflix: "nflx://", // actually nflx:// but basic deep link works for some
-                                    "amazon prime video": "primevideo://",
-                                    "disney+ hotstar": "hotstar://",
-                                    "sonyliv": "sonyliv://"
-                                 };
-                                 const appLink = deepLinks[providerName];
-                                 if (appLink && /Android|iPhone/i.test(navigator.userAgent)) {
-                                     window.location.href = appLink;
-                                     setTimeout(() => { window.open(webUrl, "_blank"); }, 1500);
-                                 } else {
-                                     window.open(webUrl, "_blank");
-                                 }
-                               }}
-                             >
-                               <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} className="w-full h-full object-cover" alt={p.provider_name} />
-                             </button>
-                          ))}
+                           {getProvidersCollection().map((p: any) => {
+                             const providerName = p.provider_name;
+                             const title = details.title || details.name || item?.title || item?.name || '';
+                             const directUrl = getDirectProviderUrl(providerName, title);
+                             const watchProvidersData = details?.['watch/providers']?.results?.[userCountry] || details?.['watch/providers']?.results?.['US'] || details?.['watch/providers']?.results?.['IN'];
+                             const webUrl = directUrl || watchProvidersData?.link || `https://www.themoviedb.org/search?query=${encodeURIComponent(title)}`;
+                             const deepLinks: Record<string, string> = {
+                                netflix: "nflx://",
+                                "amazon prime video": "primevideo://",
+                                "disney+ hotstar": "hotstar://",
+                                "sonyliv": "sonyliv://"
+                             };
+                             const appLink = deepLinks[providerName.toLowerCase()];
+                             return (
+                               <button
+                                 key={p.provider_id}
+                                 className="w-10 h-10 rounded-lg overflow-hidden hover:scale-110 transition-transform shadow-lg group relative"
+                                 title={`Open in ${p.provider_name}`}
+                                 onClick={() => {
+                                   if (appLink && /Android|iPhone/i.test(navigator.userAgent)) {
+                                       window.location.href = appLink;
+                                       setTimeout(() => { window.open(webUrl, "_blank"); }, 1500);
+                                   } else {
+                                       window.open(webUrl, "_blank");
+                                   }
+                                 }}
+                               >
+                                 <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} className="w-full h-full object-cover" alt={p.provider_name} />
+                               </button>
+                             );
+                           })}
                         </div>
                      </div>
                    )}
@@ -2826,7 +2933,7 @@ export function MediaCard({ item, type, onClick, onHover }: { key?: any; item: a
   const { setHoveredBackdrop } = useBackdrop();
   const { watchlistItems, addToWatchlist, removeFromWatchlist, updateItemRating } = useWatchlist();
 
-  const watchlistItem = watchlistItems.find(i => i.externalId === (item.id || item.mal_id));
+  const watchlistItem = watchlistItems.find(i => String(i.externalId) === String(item.id || item.mal_id));
   const isSaved = !!watchlistItem;
   const isActive = activeId === (item.id || item.mal_id);
 
@@ -5056,8 +5163,8 @@ function StatsDashboard({ items, stats, avgRating }: { items: MediaItem[], stats
         <Card className="lg:col-span-2 bg-card/40 border-border backdrop-blur-md p-8 rounded-3xl shadow-2xl overflow-hidden min-h-[300px]">
           <h3 className="text-muted-foreground text-[10px] font-black uppercase tracking-[0.2em] mb-6">Genre Popularity</h3>
           {genreData.length > 0 ? (
-            <div className="h-64 w-full">
-               <ResponsiveContainer width="100%" height="100%" minWidth={1}>
+            <div className="h-[300px] w-full">
+               <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={genreData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                      <XAxis dataKey="name" tick={{fill: '#888', fontSize: 10}} tickLine={false} axisLine={false} />
                      <YAxis tick={{fill: '#888', fontSize: 10}} tickLine={false} axisLine={false} />
@@ -5093,8 +5200,8 @@ function StatsDashboard({ items, stats, avgRating }: { items: MediaItem[], stats
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="bg-card/40 border-border backdrop-blur-md p-8 rounded-3xl shadow-2xl min-h-[300px]">
            <h3 className="text-muted-foreground text-[10px] font-black uppercase tracking-[0.2em] mb-6">Viewing Activity by Day</h3>
-           <div className="h-64 w-full">
-               <ResponsiveContainer width="100%" height="100%" minWidth={1}>
+           <div className="h-[300px] w-full">
+               <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <LineChart data={dayData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                      <XAxis dataKey="day" tick={{fill: '#888', fontSize: 10}} tickLine={false} axisLine={false} />
                      <YAxis tick={{fill: '#888', fontSize: 10}} tickLine={false} axisLine={false} allowDecimals={false} />
@@ -5109,8 +5216,8 @@ function StatsDashboard({ items, stats, avgRating }: { items: MediaItem[], stats
         
         <Card className="bg-card/40 border-border backdrop-blur-md p-8 rounded-3xl shadow-2xl min-h-[300px]">
            <h3 className="text-muted-foreground text-[10px] font-black uppercase tracking-[0.2em] mb-6">Rating Distribution</h3>
-           <div className="h-64 w-full">
-               <ResponsiveContainer width="100%" height="100%" minWidth={1}>
+           <div className="h-[300px] w-full">
+               <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={ratingData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                      <XAxis dataKey="rating" tick={{fill: '#888', fontSize: 10}} tickLine={false} axisLine={false} />
                      <YAxis tick={{fill: '#888', fontSize: 10}} tickLine={false} axisLine={false} allowDecimals={false} />
@@ -5888,7 +5995,7 @@ function MediaTracker() {
       return;
     }
 
-    if (items.some(i => i.externalId === tmdbItem.id)) {
+    if (items.some(i => String(i.externalId) === String(tmdbItem.id))) {
       toast.error('Already in your list!');
       return;
     }
@@ -5918,7 +6025,7 @@ function MediaTracker() {
 
   const removeFromWatchlist = async (externalId: string | number) => {
     if (!user) return;
-    const existingItem = items.find(i => i.externalId === externalId);
+    const existingItem = items.find(i => String(i.externalId) === String(externalId));
     if (!existingItem) return;
 
     try {
@@ -5937,7 +6044,7 @@ function MediaTracker() {
     if (!user) return;
 
     // Check if already in list
-    const existingItem = items.find(i => i.externalId === tmdbItem.id);
+    const existingItem = items.find(i => String(i.externalId) === String(tmdbItem.id));
     if (existingItem) {
       if (existingItem.status === 'completed') {
         toast.error('Already marked as watched!');
@@ -7995,11 +8102,21 @@ function MediaTracker() {
                     <div className="mb-6">
                       <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.2em] mb-3">Available On</p>
                       <div className="flex gap-3">
-                        {aiRecommendations[currentAiIndex].providers.slice(0, 5).map((p: any) => (
-                          <div key={p.provider_id} className="w-10 h-10 rounded-xl overflow-hidden border border-border shadow-lg group relative" title={p.provider_name}>
-                            <img src={`https://image.tmdb.org/t/p/original${p.logo_path}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt={p.provider_name} />
-                          </div>
-                        ))}
+                        {aiRecommendations[currentAiIndex].providers.slice(0, 5).map((p: any) => {
+                          const providerName = p.provider_name;
+                          const title = aiRecommendations[currentAiIndex]?.item?.title || aiRecommendations[currentAiIndex]?.item?.name || '';
+                          const directUrl = getDirectProviderUrl(providerName, title) || `https://www.themoviedb.org/search?query=${encodeURIComponent(title)}`;
+                          return (
+                            <button 
+                              key={p.provider_id} 
+                              className="w-10 h-10 rounded-xl overflow-hidden border border-border shadow-lg group relative hover:scale-110 transition-transform cursor-pointer" 
+                              title={`Open in ${p.provider_name}`}
+                              onClick={() => window.open(directUrl, "_blank")}
+                            >
+                              <img src={`https://image.tmdb.org/t/p/original${p.logo_path}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt={p.provider_name} />
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -8138,8 +8255,8 @@ function MediaTracker() {
         onClose={() => setIsDetailModalOpen(false)}
         onAdd={addFromTMDB}
         onMarkWatched={markWatchedFromTMDB}
-        watchedEpisodes={items.find(i => i.externalId === selectedItem?.id)?.watchedEpisodes || []}
-        favoriteEpisodes={items.find(i => i.externalId === selectedItem?.id)?.favoriteEpisodes || []}
+        watchedEpisodes={items.find(i => String(i.externalId) === String(selectedItem?.id || ''))?.watchedEpisodes || []}
+        favoriteEpisodes={items.find(i => String(i.externalId) === String(selectedItem?.id || ''))?.favoriteEpisodes || []}
         onMarkEpisodeWatched={onMarkEpisodeWatched}
         onToggleFavorite={onToggleFavoriteEpisode}
         userProfile={profileService.getProfile()}
@@ -8149,9 +8266,9 @@ function MediaTracker() {
            setTrailerKey(key);
            setTrailerModalOpen(true);
         }}
-        episodeProgress={items.find(i => i.externalId === selectedItem?.id)?.episodeProgress || {}}
+        episodeProgress={items.find(i => String(i.externalId) === String(selectedItem?.id || ''))?.episodeProgress || {}}
         onUpdateEpisodeProgress={onUpdateEpisodeProgress}
-        episodeRatings={items.find(i => i.externalId === selectedItem?.id)?.episodeRatings || {}}
+        episodeRatings={items.find(i => String(i.externalId) === String(selectedItem?.id || ''))?.episodeRatings || {}}
         onUpdateEpisodeRating={onUpdateEpisodeRating}
       />
 
