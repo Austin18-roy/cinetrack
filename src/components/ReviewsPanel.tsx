@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, increment, query, orderBy } from 'firebase/firestore';
 import { motion } from 'framer-motion';
+import { Flag } from 'lucide-react';
+import { ReportModal } from './ReportModal';
 
 interface Review {
   id: string;
@@ -22,6 +24,7 @@ export function ReviewsPanel({ contentId }: { contentId: string }) {
   const [sort, setSort] = useState("newest");
   const [userRole, setUserRole] = useState<"audience" | "critic">("audience");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reportingReview, setReportingReview] = useState<Review | null>(null);
 
   useEffect(() => {
     if (!contentId) return;
@@ -242,6 +245,14 @@ export function ReviewsPanel({ contentId }: { contentId: string }) {
                     >
                       👎 Dislike ({r.unhelpful || 0})
                     </button>
+                    <button 
+                      onClick={() => setReportingReview(r)}
+                      className="hover:text-red-400 hover:bg-red-500/10 flex items-center gap-1.5 transition bg-white/5 px-3 py-1.5 rounded-full text-zinc-400 cursor-pointer"
+                      title="Report inappropriate content"
+                    >
+                      <Flag className="w-3.5 h-3.5 text-zinc-500 hover:text-red-400" />
+                      Report
+                    </button>
                  </div>
                  <small>{r.createdAt?.seconds ? new Date(r.createdAt.seconds * 1000).toLocaleDateString() : 'Just now'}</small>
               </div>
@@ -249,6 +260,18 @@ export function ReviewsPanel({ contentId }: { contentId: string }) {
           ))}
         </div>
       </div>
+
+      {reportingReview && (
+        <ReportModal
+          isOpen={!!reportingReview}
+          onClose={() => setReportingReview(null)}
+          reviewId={reportingReview.id}
+          contentId={contentId}
+          reviewText={reportingReview.text}
+          reportedUserId={reportingReview.userId}
+          reportedUsername={reportingReview.username}
+        />
+      )}
     </div>
   );
 }

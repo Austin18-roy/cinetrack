@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Star, Check, CheckCircle2, Play, VolumeX, Volume2, Youtube } from 'lucide-react';
 import { omdbService } from '../services/omdbService';
+import { motion } from 'motion/react';
 
 export const EpisodeCard: React.FC<{
   ep: any;
@@ -16,7 +17,27 @@ export const EpisodeCard: React.FC<{
   onToggleFavorite?: (epNum: number) => void;
   tvId: number;
   seasonNum: number;
-}> = ({ ep, epNum, isWatched, isFavorite, isNew, image, airDateLocal, onMarkWatched, onToggleFavorite, tvId, seasonNum }) => {
+  episodeProgressPct?: number;
+  onUpdateProgress?: (epNum: number, progressPct: number) => void;
+  rating?: number;
+  onUpdateRating?: (epNum: number, rating: number) => void;
+}> = ({ 
+  ep, 
+  epNum, 
+  isWatched, 
+  isFavorite, 
+  isNew, 
+  image, 
+  airDateLocal, 
+  onMarkWatched, 
+  onToggleFavorite, 
+  tvId, 
+  seasonNum,
+  episodeProgressPct = 0,
+  onUpdateProgress,
+  rating = 0,
+  onUpdateRating
+}) => {
   const [hovered, setHovered] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -151,8 +172,13 @@ export const EpisodeCard: React.FC<{
             <div className={`absolute inset-0 transition-colors pointer-events-none ${hovered ? 'bg-gradient-to-t from-black via-black/20 to-transparent' : 'bg-black/20'}`} />
           )}
           
-          {isWatched && !hovered && (
-            <div className="absolute inset-x-0 bottom-0 h-1 bg-primary z-10" />
+          {((episodeProgressPct && episodeProgressPct > 0) || isWatched) && !hovered && (
+            <div className="absolute inset-x-0 bottom-0 h-1 bg-zinc-800/80 z-10 w-full overflow-hidden animate-fade-in">
+              <div 
+                className="bg-primary h-full transition-all duration-300 pointer-events-none" 
+                style={{ width: `${episodeProgressPct || (isWatched ? 100 : 0)}%` }} 
+              />
+            </div>
           )}
           
           <div className="absolute top-2 left-2 flex items-center gap-1.5 z-10 pointer-events-none">
@@ -183,7 +209,16 @@ export const EpisodeCard: React.FC<{
                 onClick={(e) => { e.stopPropagation(); onMarkWatched(epNum); }}
                 className={`w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white shadow-2xl transition-transform active:scale-90 ${isWatched ? 'text-primary' : ''}`}
                >
-                 {isWatched ? <CheckCircle2 className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                 <motion.div
+                   key={isWatched ? 'watched' : 'unwatched'}
+                   initial={{ scale: 0.6, rotate: -15 }}
+                   animate={{ scale: [1, 1.3, 0.95, 1], rotate: 0 }}
+                   whileTap={{ scale: 0.8 }}
+                   transition={{ duration: 0.4, ease: "easeOut" }}
+                   className="flex items-center justify-center"
+                 >
+                   {isWatched ? <CheckCircle2 className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                 </motion.div>
                </Button>
             </div>
           )}
@@ -227,18 +262,27 @@ export const EpisodeCard: React.FC<{
                   size="icon"
                   variant="ghost"
                   onClick={(e) => { e.stopPropagation(); onToggleFavorite(epNum); }}
-                  className={`w-8 h-8 rounded-full transition-colors ${isFavorite ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]' : 'text-muted-foreground hover:text-yellow-500 hover:bg-white/5'}`}
+                  className={`w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors flex items-center justify-center ${isFavorite ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]' : 'text-muted-foreground hover:text-yellow-500 hover:bg-white/5'}`}
                  >
-                   <Star className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+                   <Star className={`w-5 h-5 sm:w-4 sm:h-4 ${isFavorite ? 'fill-current' : ''}`} />
                  </Button>
                )}
                <Button
                 size="icon"
                 variant="ghost"
                 onClick={(e) => { e.stopPropagation(); onMarkWatched(epNum); }}
-                className={`w-8 h-8 rounded-full border transition-colors sm:hidden ${isWatched ? 'bg-primary/20 text-primary border-primary/30' : 'bg-white/5 text-muted-foreground border-border hover:text-white hover:bg-white/10'}`}
+                className={`w-11 h-11 rounded-full border transition-colors sm:hidden flex items-center justify-center ${isWatched ? 'bg-primary/20 text-primary border-primary/30' : 'bg-white/5 text-muted-foreground border-border hover:text-white hover:bg-white/10'}`}
                >
-                 {isWatched ? <CheckCircle2 className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                 <motion.div
+                   key={isWatched ? 'watched-sm' : 'unwatched-sm'}
+                   initial={{ scale: 0.6, rotate: -15 }}
+                   animate={{ scale: [1, 1.3, 0.95, 1], rotate: 0 }}
+                   whileTap={{ scale: 0.8 }}
+                   transition={{ duration: 0.4, ease: "easeOut" }}
+                   className="flex items-center justify-center font-bold"
+                 >
+                   {isWatched ? <CheckCircle2 className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+                 </motion.div>
                </Button>
             </div>
           </div>
@@ -257,6 +301,108 @@ export const EpisodeCard: React.FC<{
           <p className={`text-xs leading-relaxed ${hovered ? 'line-clamp-4 text-zinc-300' : 'line-clamp-3 md:line-clamp-2 text-muted-foreground'}`}>
             {shortOverview(ep.overview)}
           </p>
+
+          <div className="mt-3 pt-2 border-t border-white/5 space-y-3 select-none" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[10px] font-black tracking-widest text-[#a1a1aa] uppercase flex items-center gap-1.5 pb-0.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                Your Enjoyment Rating:
+              </span>
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((starVal) => {
+                  const isFilled = rating >= starVal;
+                  return (
+                    <button
+                      key={starVal}
+                      onClick={() => {
+                        if (onUpdateRating) {
+                          onUpdateRating(epNum, starVal);
+                        }
+                      }}
+                      className={`transition-all duration-150 hover:scale-125 cursor-pointer origin-center p-0.5 ${
+                        isFilled ? 'text-yellow-400' : 'text-zinc-600 hover:text-yellow-400/50'
+                      }`}
+                      title={`Rate ${starVal} Star${starVal > 1 ? 's' : ''}`}
+                    >
+                      <Star className={`w-3.5 h-3.5 ${isFilled ? 'fill-current' : ''}`} />
+                    </button>
+                  );
+                })}
+                {rating > 0 && (
+                  <button
+                    onClick={() => {
+                      if (onUpdateRating) {
+                        onUpdateRating(epNum, 0);
+                      }
+                    }}
+                    className="text-[9px] font-black ml-1 my-0.5 px-1 py-0.2 rounded bg-zinc-800 hover:bg-red-500/10 text-zinc-500 hover:text-red-400 hover:border-red-500/20 border border-transparent transition-all cursor-pointer"
+                    title="Clear your individual episode rating"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[10px] font-black tracking-widest text-[#a1a1aa] uppercase flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                Episode Progress:
+              </span>
+              <div className="flex gap-1.5 items-center">
+                {[25, 50, 75, 100].map((pct) => (
+                  <button
+                    key={pct}
+                    onClick={() => {
+                      if (onUpdateProgress) {
+                        onUpdateProgress(epNum, pct);
+                      }
+                    }}
+                    className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded transition-all transform active:scale-95 duration-200 cursor-pointer ${
+                      (episodeProgressPct === pct || (!episodeProgressPct && isWatched && pct === 100))
+                        ? 'bg-primary text-black font-black scale-105 shadow-[0_0_8px_rgba(251,191,36,0.3)]'
+                        : 'bg-[#222] text-zinc-400 hover:bg-zinc-800 hover:text-white border border-white/5'
+                    }`}
+                  >
+                    {pct === 100 ? '100%' : `${pct}%`}
+                  </button>
+                ))}
+                {((episodeProgressPct && episodeProgressPct > 0) || isWatched) && (
+                  <button
+                    onClick={() => {
+                      if (onUpdateProgress) {
+                        onUpdateProgress(epNum, 0);
+                      }
+                    }}
+                    className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div 
+                className="flex-grow h-2 bg-[#18181b] border border-white/5 rounded-full overflow-hidden relative cursor-pointer group"
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const x = e.clientX - rect.left;
+                  const pct = Math.min(100, Math.max(0, Math.round((x / rect.width) * 100)));
+                  if (onUpdateProgress) onUpdateProgress(epNum, pct);
+                }}
+              >
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${episodeProgressPct || (isWatched ? 100 : 0)}%` }}
+                  transition={{ type: "spring", stiffness: 100, damping: 15 }}
+                  className="absolute inset-y-0 left-0 bg-primary h-full rounded-full" 
+                />
+              </div>
+              <span className="text-[10px] font-mono font-bold text-zinc-400 w-8 text-right shrink-0">
+                {episodeProgressPct || (isWatched ? 100 : 0)}%
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

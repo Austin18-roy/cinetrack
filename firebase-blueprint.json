@@ -16,6 +16,11 @@
         "posterUrl": { "type": "string", "description": "URL to the poster image." },
         "externalId": { "type": "number", "description": "ID from external source (e.g. TMDb)." },
         "source": { "type": "string", "enum": ["tmdb", "manual"], "description": "Source of the data." },
+        "genreIds": { "type": "array", "items": { "type": "number" }, "description": "TMDb genre IDs." },
+        "watchedEpisodes": { "type": "array", "items": { "type": "number" }, "description": "List of watched episode numbers." },
+        "favoriteEpisodes": { "type": "array", "items": { "type": "number" }, "description": "List of favorite episode numbers." },
+        "episodeProgress": { "type": "object", "description": "Map representing partially watched episode progress percentages (0-100)." },
+        "episodeRatings": { "type": "object", "description": "Map representing individual episode ratings (e.g. 1-10 stars)." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the item was added." },
         "updatedAt": { "type": "string", "format": "date-time", "description": "When the item was last updated." }
       },
@@ -62,6 +67,23 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "rating", "text", "type", "createdAt"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "A user-submitted report/flag for inappropriate content in a review.",
+      "type": "object",
+      "properties": {
+        "reviewId": { "type": "string", "description": "The document ID of the reported review." },
+        "contentId": { "type": "string", "description": "The media ID associated with the review." },
+        "reportedUserId": { "type": "string", "description": "The UID of the user who wrote the review." },
+        "reportedUsername": { "type": "string", "description": "The name of the user who wrote the review." },
+        "flaggedBy": { "type": "string", "description": "The UID of the reporter." },
+        "reason": { "type": "string", "description": "The reason for reporting." },
+        "text": { "type": "string", "description": "Optional detailed comments." },
+        "reviewText": { "type": "string", "description": "The raw text of the reported review." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the report was submitted." }
+      },
+      "required": ["reviewId", "contentId", "reportedUserId", "flaggedBy", "reason", "reviewText", "createdAt"]
     }
   },
   "firestore": {
@@ -80,6 +102,10 @@
     "/reviews/{contentId}/reviews/{reviewId}": {
       "schema": "Review",
       "description": "Reviews for media items"
+    },
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "Root collection representing user-flagged review content for moderation."
     }
   }
 }

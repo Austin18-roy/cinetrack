@@ -85,7 +85,8 @@ import {
   Send,
   Check,
   Sun,
-  Moon
+  Moon,
+  Flag
 } from 'lucide-react';
 import { tmdbService, type TMDBItem } from './services/tmdbService';
 import { ActorModal } from './components/ActorModal';
@@ -127,6 +128,7 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+import { ReportModal } from './components/ReportModal';
 
 // --- Types ---
 
@@ -155,6 +157,8 @@ export interface MediaItem {
   themes?: string[];
   watchedEpisodes?: number[];
   favoriteEpisodes?: number[];
+  episodeProgress?: Record<string, number>;
+  episodeRatings?: Record<string, number>;
   seasons?: any[];
   hypeScore?: number;
   recommendationReason?: string;
@@ -490,6 +494,7 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
   const [rating, setRating] = useState(10);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sort, setSort] = useState("newest");
+  const [reportingReview, setReportingReview] = useState<any | null>(null);
 
   useEffect(() => {
     // MediaId can come in as number or string, but for query we want string
@@ -647,6 +652,14 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
                 >
                   👍 Mark as Helpful ({r.helpful || 0})
                 </button>
+                <button 
+                  onClick={() => setReportingReview(r)}
+                  className="hover:text-red-400 hover:bg-red-500/10 flex items-center gap-1.5 transition bg-white/5 px-3 py-1.5 rounded-full text-zinc-400 cursor-pointer"
+                  title="Report inappropriate content"
+                >
+                  <Flag className="w-3.5 h-3.5 text-zinc-500 hover:text-red-400" />
+                  Report
+                </button>
              </div>
            </div>
          ))}
@@ -690,6 +703,18 @@ function UserReviewsSection({ mediaId }: { mediaId: string | number }) {
            <p className="text-primary font-black text-xs uppercase tracking-widest font-display">Sign in to leave a review</p>
         </div>
       )}
+
+      {reportingReview && (
+        <ReportModal
+          isOpen={!!reportingReview}
+          onClose={() => setReportingReview(null)}
+          reviewId={reportingReview.id}
+          contentId={String(mediaId)}
+          reviewText={reportingReview.text || reportingReview.review}
+          reportedUserId={reportingReview.userId}
+          reportedUsername={reportingReview.userName || reportingReview.username || 'Anonymous'}
+        />
+      )}
     </div>
   );
 }
@@ -731,7 +756,11 @@ function DetailModal({
   userProfile,
   onToggleReminder,
   reminders = [],
-  onWatchTrailer
+  onWatchTrailer,
+  episodeProgress = {},
+  onUpdateEpisodeProgress,
+  episodeRatings = {},
+  onUpdateEpisodeRating
 }: { 
   item: any; 
   isOpen: boolean; 
@@ -746,6 +775,10 @@ function DetailModal({
   onToggleReminder?: (item: any) => void;
   reminders?: any[];
   onWatchTrailer?: (key: string) => void;
+  episodeProgress?: Record<string, number>;
+  onUpdateEpisodeProgress?: (item: any, ep: number, progressPct: number) => void;
+  episodeRatings?: Record<string, number>;
+  onUpdateEpisodeRating?: (item: any, ep: number, rating: number) => void;
 }) {
   const [details, setDetails] = useState<any>(null);
   const [omdbRatings, setOmdbRatings] = useState<OMDbRatings | null>(null);
@@ -758,6 +791,8 @@ function DetailModal({
   const [selectedActor, setSelectedActor] = useState<number | null>(null);
   const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
   const [scrollY, setScrollY] = useState(0);
+  const [communityRating, setCommunityRating] = useState<number | null>(null);
+  const [totalReviewsCount, setTotalReviewsCount] = useState<number>(0);
 
   const { watchlistItems, updateItemRating } = useWatchlist();
   const watchlistItem = item ? watchlistItems.find(i => i.externalId === (item.id || item.mal_id)) : null;
@@ -772,6 +807,31 @@ function DetailModal({
     } else {
        applyGenreTheme(null);
     }
+  }, [isOpen, item]);
+
+  useEffect(() => {
+    if (!isOpen || !item) {
+      setCommunityRating(null);
+      setTotalReviewsCount(0);
+      return;
+    }
+    const contentId = String(item.externalId || item.id || item.mal_id);
+    const q = collection(db, "reviews", contentId, "reviews");
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs;
+      if (docs.length > 0) {
+        const total = docs.reduce((sum, doc) => sum + (doc.data().rating || 0), 0);
+        const avg = total / docs.length;
+        setCommunityRating(parseFloat(avg.toFixed(1)));
+        setTotalReviewsCount(docs.length);
+      } else {
+        setCommunityRating(null);
+        setTotalReviewsCount(0);
+      }
+    }, (err) => {
+      console.error("Error fetching community reviews for rating:", err);
+    });
+    return () => unsubscribe();
   }, [isOpen, item]);
 
   useEffect(() => {
@@ -1086,6 +1146,22 @@ function DetailModal({
                        </div>
                      )}
 
+                     {communityRating !== null && (
+                       <div className="flex flex-col">
+                         <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-1">Cinephile Community</span>
+                         <span className="text-[#00ffcc] font-black text-2xl flex items-center gap-2 drop-shadow-[0_0_10px_rgba(0,255,180,0.4)]">
+                           ⭐ {communityRating} <span className="text-[10px] text-zinc-400 font-black tracking-normal uppercase ml-1">/10 ({totalReviewsCount} {totalReviewsCount === 1 ? 'review' : 'reviews'})</span>
+                         </span>
+                       </div>
+                     )}
+                     {communityRating === null && (
+                       <div className="flex flex-col">
+                         <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-1">Cinephile Community</span>
+                         <span className="text-zinc-500 font-extrabold text-xs mt-2 uppercase tracking-wide">
+                           No reviews yet
+                         </span>
+                       </div>
+                     )}
                      {details?.vote_average > 0 && (
                        <div className="flex flex-col">
                          <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-1">TMDb</span>
@@ -1453,6 +1529,10 @@ function DetailModal({
                    onToggleFavorite={onToggleFavorite ? (ep) => onToggleFavorite(item, ep) : () => {}}
                    watchedEpisodes={watchedEpisodes}
                    favoriteEpisodes={favoriteEpisodes}
+                   episodeProgress={episodeProgress}
+                   onUpdateProgress={onUpdateEpisodeProgress ? (ep, pct) => onUpdateEpisodeProgress(item, ep, pct) : undefined}
+                   episodeRatings={episodeRatings}
+                   onUpdateRating={onUpdateEpisodeRating ? (ep, rating) => onUpdateEpisodeRating(item, ep, rating) : undefined}
                  />
                </div>
             )}
@@ -2431,7 +2511,11 @@ function EpisodeList({
   onMarkWatched, 
   onToggleFavorite,
   watchedEpisodes = [],
-  favoriteEpisodes = []
+  favoriteEpisodes = [],
+  episodeProgress = {},
+  onUpdateProgress,
+  episodeRatings = {},
+  onUpdateRating
 }: { 
   itemId: number; 
   type: 'tv' | 'anime'; 
@@ -2439,9 +2523,13 @@ function EpisodeList({
   onToggleFavorite: (ep: number) => void;
   watchedEpisodes?: number[];
   favoriteEpisodes?: number[];
+  episodeProgress?: Record<string, number>;
+  onUpdateProgress?: (ep: number, progressPct: number) => void;
+  episodeRatings?: Record<string, number>;
+  onUpdateRating?: (ep: number, rating: number) => void;
 }) {
   const [seasons, setSeasons] = useState<any[]>([]);
-  const [sortOption, setSortOption] = useState<'episode' | 'air_date' | 'rating'>('episode');
+  const [sortOption, setSortOption] = useState<'oldest' | 'newest' | 'rating'>('oldest');
 
   useEffect(() => {
     const fetchSeasons = async () => {
@@ -2462,11 +2550,11 @@ function EpisodeList({
         <select 
           value={sortOption} 
           onChange={(e) => setSortOption(e.target.value as any)}
-          className="bg-[#111] border border-white/10 text-white rounded-md px-3 py-1.5 text-xs font-bold uppercase tracking-widest"
+          className="bg-[#111] border border-white/10 text-white rounded-md px-3 py-1.5 text-xs font-bold uppercase tracking-widest cursor-pointer"
         >
-          <option value="episode">Order</option>
-          <option value="rating">Rating</option>
-          <option value="air_date">Newest</option>
+          <option value="oldest">Oldest to Newest</option>
+          <option value="newest">Newest to Oldest</option>
+          <option value="rating">Highest Rating</option>
         </select>
       </div>
 
@@ -2483,6 +2571,10 @@ function EpisodeList({
               onMarkWatched={onMarkWatched}
               onToggleFavorite={onToggleFavorite}
               defaultExpanded={type !== 'tv' || i === 0}
+              episodeProgress={episodeProgress}
+              onUpdateProgress={onUpdateProgress}
+              episodeRatings={episodeRatings}
+              onUpdateRating={onUpdateRating}
            />
         ))}
       </div>
@@ -2491,7 +2583,7 @@ function EpisodeList({
 }
 
 function CollapsibleSeason({ 
-  season, itemId, type, sortOption, watchedEpisodes, favoriteEpisodes, onMarkWatched, onToggleFavorite, defaultExpanded 
+  season, itemId, type, sortOption, watchedEpisodes, favoriteEpisodes, onMarkWatched, onToggleFavorite, defaultExpanded, episodeProgress = {}, onUpdateProgress, episodeRatings = {}, onUpdateRating 
 }: any) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [episodes, setEpisodes] = useState<any[]>([]);
@@ -2568,10 +2660,17 @@ function CollapsibleSeason({
                     const bRating = b.imdbRating || b.vote_average || 0;
                     return bRating - aRating;
                  }
-                 if (sortOption === 'air_date') {
+                 if (sortOption === 'newest') {
                     const aDate = new Date(a.air_date || a.aired || 0).getTime();
                     const bDate = new Date(b.air_date || b.aired || 0).getTime();
                     return bDate - aDate;
+                 }
+                 if (sortOption === 'oldest') {
+                    const aDate = new Date(a.air_date || a.aired || 0).getTime();
+                    const bDate = new Date(b.air_date || b.aired || 0).getTime();
+                    if (aDate && bDate && aDate !== bDate) {
+                       return aDate - bDate;
+                    }
                  }
                  return (a.episode_number || a.mal_id) - (b.episode_number || b.mal_id);
               }).map((ep) => {
@@ -2599,6 +2698,10 @@ function CollapsibleSeason({
                     onToggleFavorite={onToggleFavorite}
                     tvId={itemId}
                     seasonNum={season.season_number}
+                    episodeProgressPct={episodeProgress?.[epNum.toString()] || (isWatched ? 100 : 0)}
+                    onUpdateProgress={onUpdateProgress}
+                    rating={episodeRatings?.[epNum.toString()] || 0}
+                    onUpdateRating={onUpdateRating}
                   />
                 );
               })}
@@ -5060,6 +5163,10 @@ function MediaTracker() {
   const [watchlistFilterStatus, setWatchlistFilterStatus] = useState<'all' | MediaStatus>('all');
   const [watchlistFilterType, setWatchlistFilterType] = useState<'all' | MediaType>('all');
   const [watchlistGenreFilter, setWatchlistGenreFilter] = useState<number | 'all'>('all');
+  const [watchlistSort, setWatchlistSort] = useState<'newest_added' | 'oldest_added' | 'highest_rated' | 'title_asc'>('newest_added');
+  const [watchlistRatingFilter, setWatchlistRatingFilter] = useState<number | 'all'>('all');
+  const [watchlistDecadeFilter, setWatchlistDecadeFilter] = useState<string | 'all'>('all');
+  const [activeDropdown, setActiveDropdown] = useState<'status' | 'type' | 'genre' | 'rating' | 'decade' | 'sort' | null>(null);
   
   const availableGenreIds = useMemo(() => {
     const ids = new Set<number>();
@@ -5070,6 +5177,66 @@ function MediaTracker() {
     });
     return Array.from(ids).sort((a, b) => (TMDB_GENRE_MAP[a] || '').localeCompare(TMDB_GENRE_MAP[b] || ''));
   }, [items]);
+
+  const renderFilterDropdown = (
+    type: 'status' | 'type' | 'genre' | 'rating' | 'decade' | 'sort',
+    label: string,
+    selectedValueLabel: string,
+    options: { value: any; label: string }[],
+    onSelect: (val: any) => void
+  ) => {
+    const isOpen = activeDropdown === type;
+    return (
+      <div className="relative inline-block text-left" key={type}>
+        <button
+          type="button"
+          onClick={() => setActiveDropdown(isOpen ? null : type)}
+          className={`flex items-center gap-1.5 uppercase font-sans font-bold text-[11px] tracking-wider transition-all border-b border-transparent py-1 px-2.5 rounded-md hover:bg-white/5 cursor-pointer ${
+            isOpen ? 'text-primary' : 'text-[#899aa9] hover:text-white'
+          }`}
+        >
+          <span>
+            {label}: <span className="text-white font-extrabold">{selectedValueLabel}</span>
+          </span>
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180 text-primary' : 'text-[#556677]'}`} />
+        </button>
+
+        {isOpen && (
+          <div className="absolute right-0 sm:left-0 mt-2.5 w-52 bg-[#1c252d] border border-[#2c3440] rounded-xl shadow-2xl z-50 origin-top-left overflow-hidden divide-y divide-[#2c3440] animate-fade-in">
+            <div className="py-1">
+              {options.map((opt) => {
+                const optSelected = 
+                  type === 'genre' && watchlistGenreFilter === opt.value ||
+                  type === 'status' && watchlistFilterStatus === opt.value ||
+                  type === 'type' && watchlistFilterType === opt.value ||
+                  type === 'sort' && watchlistSort === opt.value ||
+                  type === 'rating' && watchlistRatingFilter === opt.value ||
+                  type === 'decade' && watchlistDecadeFilter === opt.value;
+
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => {
+                      onSelect(opt.value);
+                      setActiveDropdown(null);
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-all flex items-center justify-between cursor-pointer ${
+                      optSelected 
+                        ? 'bg-[#14181c] text-white border-l-2 border-primary' 
+                        : 'text-[#899aa9] hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {optSelected && <span className="text-primary text-[10px]">●</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // TMDb State
   const [searchResults, setSearchResults] = useState<TMDBItem[]>([]);
@@ -5127,6 +5294,11 @@ function MediaTracker() {
     setTabSwipe(true);
     setTimeout(() => {
         setActiveTab(tabId);
+        if (tabId === 'watchlist') {
+          setWatchlistFilterStatus('plan-to-watch'); // Default to watchlist view (Plan-to-watch)
+        } else if (tabId === 'history') {
+          setWatchlistFilterStatus('completed'); // Default to Films view (Completed)
+        }
         window.scrollTo(0, 0); // Reset scroll on "page" change
         setTimeout(() => setTabSwipe(false), 50); // slight delay before unswiping
     }, 400); // match transition
@@ -5886,16 +6058,26 @@ function MediaTracker() {
     try {
       if (existing) {
         const watched = existing.watchedEpisodes || [];
-        const newWatched = watched.includes(ep) 
+        const isCurrentlyWatched = watched.includes(ep);
+        const newWatched = isCurrentlyWatched 
           ? watched.filter(e => e !== ep)
           : [...watched, ep];
         
+        const progressMap = existing.episodeProgress || {};
+        const updatedProgress = { ...progressMap };
+        if (!isCurrentlyWatched) {
+          updatedProgress[ep.toString()] = 100;
+        } else {
+          delete updatedProgress[ep.toString()];
+        }
+        
         await updateDoc(doc(db, 'mediaItems', existing.id), {
           watchedEpisodes: newWatched,
+          episodeProgress: updatedProgress,
           lastWatchedAt: serverTimestamp(),
           status: 'watching'
         });
-        toast.success(`Episode ${ep} ${watched.includes(ep) ? 'unmarked' : 'marked'} as watched`);
+        toast.success(`Episode ${ep} ${isCurrentlyWatched ? 'unmarked' : 'marked'} as watched`);
       } else {
         // Add to watchlist first
         const type: MediaType = item.media_type === 'tv' ? 'series' : (item.media_type === 'anime' ? 'anime' : 'movie');
@@ -5909,10 +6091,116 @@ function MediaTracker() {
           updatedAt: serverTimestamp(),
           status: 'watching',
           watchedEpisodes: [ep],
+          episodeProgress: { [ep.toString()]: 100 },
           lastWatchedAt: serverTimestamp(),
           genreIds: item.genre_ids || []
         });
         toast.success(`Added to watching and marked episode ${ep}`);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'mediaItems');
+    }
+  };
+
+  const onUpdateEpisodeProgress = async (item: any, ep: number, progressPct: number) => {
+    if (!user) return;
+    const existing = items.find(i => i.externalId === item.id);
+    
+    try {
+      if (existing) {
+        const progressMap = existing.episodeProgress || {};
+        const updatedProgress = { ...progressMap };
+        
+        if (progressPct <= 0) {
+          delete updatedProgress[ep.toString()];
+        } else {
+          updatedProgress[ep.toString()] = progressPct;
+        }
+
+        let watched = existing.watchedEpisodes || [];
+        if (progressPct >= 100) {
+          if (!watched.includes(ep)) {
+            watched = [...watched, ep];
+          }
+        } else {
+          if (watched.includes(ep)) {
+            watched = watched.filter(e => e !== ep);
+          }
+        }
+
+        await updateDoc(doc(db, 'mediaItems', existing.id), {
+          episodeProgress: updatedProgress,
+          watchedEpisodes: watched,
+          lastWatchedAt: serverTimestamp(),
+          status: 'watching'
+        });
+        toast.success(`Episode ${ep} progress updated to ${progressPct}%`);
+      } else {
+        const type: MediaType = item.media_type === 'tv' ? 'series' : (item.media_type === 'anime' ? 'anime' : 'movie');
+        await addDoc(collection(db, 'mediaItems'), {
+          userId: user.uid,
+          externalId: item.id,
+          type: type,
+          title: item.title || item.name,
+          posterUrl: item.poster_path ? (item.poster_path.startsWith('http') ? item.poster_path : `https://image.tmdb.org/t/p/w500${item.poster_path}`) : undefined,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          status: 'watching',
+          watchedEpisodes: progressPct >= 100 ? [ep] : [],
+          episodeProgress: progressPct > 0 ? { [ep.toString()]: progressPct } : {},
+          lastWatchedAt: serverTimestamp(),
+          genreIds: item.genre_ids || []
+        });
+        toast.success(`Added to watching and set episode ${ep} progress to ${progressPct}%`);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'mediaItems');
+    }
+  };
+
+  const onUpdateEpisodeRating = async (item: any, ep: number, rating: number) => {
+    if (!user) {
+      toast.error("Please sign in to rate episodes");
+      return;
+    }
+    const existing = items.find(i => i.externalId === item.id);
+    
+    try {
+      if (existing) {
+        const ratingMap = existing.episodeRatings || {};
+        const updatedRatings = { ...ratingMap };
+        
+        if (rating <= 0) {
+          delete updatedRatings[ep.toString()];
+        } else {
+          updatedRatings[ep.toString()] = rating;
+        }
+
+        await updateDoc(doc(db, 'mediaItems', existing.id), {
+          episodeRatings: updatedRatings,
+          updatedAt: serverTimestamp(),
+        });
+        if (rating > 0) {
+          toast.success(`Episode ${ep} rated ${rating} stars!`);
+        } else {
+          toast.success(`Episode ${ep} rating cleared`);
+        }
+      } else {
+        const type: MediaType = item.media_type === 'tv' ? 'series' : (item.media_type === 'anime' ? 'anime' : 'movie');
+        await addDoc(collection(db, 'mediaItems'), {
+          userId: user.uid,
+          externalId: item.id,
+          type: type,
+          title: item.title || item.name,
+          posterUrl: item.poster_path ? (item.poster_path.startsWith('http') ? item.poster_path : `https://image.tmdb.org/t/p/w500${item.poster_path}`) : undefined,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          status: 'watching',
+          episodeProgress: {},
+          episodeRatings: { [ep.toString()]: rating },
+          genreIds: item.genre_ids || []
+        });
+        toast.success(`Added to list and rated episode ${ep} ${rating} stars`);
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'mediaItems');
@@ -6490,244 +6778,452 @@ function MediaTracker() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-8"
+              className="space-y-6"
             >
-              <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-4">
-                <div className="space-y-1">
-                  <h2 className="text-4xl font-black tracking-tighter">Your Watchlist</h2>
-                  <p className="text-muted-foreground text-sm font-medium">Items you're currently tracking</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Select value={watchlistFilterStatus} onValueChange={(val: any) => setWatchlistFilterStatus(val)}>
-                    <SelectTrigger className="w-[160px] bg-card/40 border-border rounded-xl focus:ring-primary/20">
-                      <SelectValue placeholder="All Statuses" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-card border-border">
-                      <SelectItem value="all">All Statuses</SelectItem>
-                      <SelectItem value="plan-to-watch">Plan to Watch</SelectItem>
-                      <SelectItem value="watching">Watching</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={watchlistFilterType} onValueChange={(val: any) => setWatchlistFilterType(val)}>
-                    <SelectTrigger className="w-[160px] bg-card/40 border-border rounded-xl focus:ring-primary/20">
-                      <SelectValue placeholder="All Types" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-card border-border">
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="movie">Movies</SelectItem>
-                      <SelectItem value="series">Series</SelectItem>
-                      <SelectItem value="anime">Anime</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Badge className="bg-primary text-black font-black px-4 py-2 rounded-xl shadow-lg shadow-primary/20 ml-auto">
-                    {items.filter(i => 
-                      (watchlistFilterStatus === 'all' || i.status === watchlistFilterStatus || (watchlistFilterStatus === 'plan-to-watch' && i.status === 'plan_to_watch')) && 
-                      (watchlistFilterType === 'all' || i.type === watchlistFilterType) &&
-                      (watchlistGenreFilter === 'all' || (i.genreIds && i.genreIds.includes(watchlistGenreFilter as number)))
-                    ).length} ITEMS
-                  </Badge>
-                </div>
-              </div>
-
-              {/* Genre Filter Chips */}
-              {availableGenreIds.length > 0 && (
-                <div className="flex flex-wrap gap-2 pb-4">
-                  <button
-                    onClick={() => setWatchlistGenreFilter('all')}
-                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                      watchlistGenreFilter === 'all'
-                        ? 'bg-primary text-black shadow-lg shadow-primary/20'
-                        : 'bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-white border border-border'
-                    }`}
-                  >
-                    ALL GENRES
-                  </button>
-                  {availableGenreIds.map(id => (
-                    <button
-                      key={id}
-                      onClick={() => setWatchlistGenreFilter(id)}
-                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                        watchlistGenreFilter === id
-                          ? 'bg-primary text-black shadow-lg shadow-primary/20'
-                          : 'bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-white border border-border'
-                      }`}
-                    >
-                      {TMDB_GENRE_MAP[id] || 'Other'}
-                    </button>
-                  ))}
-                </div>
+              {activeDropdown && (
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setActiveDropdown(null)} />
               )}
 
-              <div className="grid gap-6">
-                {items.filter(i => 
-                  (watchlistFilterStatus === 'all' || i.status === watchlistFilterStatus || (watchlistFilterStatus === 'plan-to-watch' && i.status === 'plan_to_watch')) && 
-                  (watchlistFilterType === 'all' || i.type === watchlistFilterType) &&
-                  (watchlistGenreFilter === 'all' || (i.genreIds && i.genreIds.includes(watchlistGenreFilter as number)))
-                ).length > 0 ? (
-                  items.filter(i => 
-                    (watchlistFilterStatus === 'all' || i.status === watchlistFilterStatus || (watchlistFilterStatus === 'plan-to-watch' && i.status === 'plan_to_watch')) && 
-                    (watchlistFilterType === 'all' || i.type === watchlistFilterType) &&
-                    (watchlistGenreFilter === 'all' || (i.genreIds && i.genreIds.includes(watchlistGenreFilter as number)))
-                  ).map((item, idx) => (
-                    <Card 
-                      key={`${item.id}-${idx}`} 
-                      className="bg-card/40 border-border backdrop-blur-md hover:border-primary/30 transition-all group overflow-hidden rounded-[2rem] shadow-2xl"
-                    >
-                      <CardContent className="p-6 flex items-center gap-8">
-                        <div 
-                          className="w-24 h-36 rounded-2xl overflow-hidden shrink-0 bg-muted cursor-pointer shadow-2xl relative group/poster"
-                          onClick={() => {
-                            handleSelectItem({ id: item.externalId, media_type: item.type === 'series' ? 'tv' : 'movie', genreIds: item.genreIds });
-                          }}
-                        >
-                          <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover/poster:opacity-100 transition-opacity z-10 flex items-center justify-center">
-                            <PlayCircle className="w-10 h-10 text-white" />
-                          </div>
-                          {item.posterUrl ? (
-                            <img 
-                              src={item.posterUrl} 
-                              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
-                              referrerPolicy="no-referrer" 
-                              alt={item.title} 
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1578632738980-43318b5c9440?q=80&w=1000&auto=format&fit=crop';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center"><Film className="w-10 h-10 text-zinc-700" /></div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0 space-y-4">
-                          <div className="flex items-center gap-3">
-                            <h3 className="font-black text-2xl truncate tracking-tighter">{item.title}</h3>
-                            <Badge variant="outline" className="text-[10px] uppercase border-border text-muted-foreground font-black tracking-widest px-2 py-0.5">
-                              {item.type}
-                            </Badge>
-                          </div>
-                          
-                          {/* Genre Badges */}
-                          {item.genreIds && item.genreIds.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {item.genreIds.slice(0, 3).map(id => (
-                                <Badge 
-                                  key={id} 
-                                  variant="secondary"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setWatchlistGenreFilter(id);
-                                  }}
-                                  className="bg-white/5 hover:bg-primary/20 hover:text-primary text-[9px] font-black uppercase tracking-tighter cursor-pointer transition-colors border border-border"
-                                >
-                                  {TMDB_GENRE_MAP[id] || 'Other'}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                          <div className="space-y-4">
-                            <div className="flex items-center gap-6 text-xs font-black uppercase tracking-widest">
-                              <span className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${
-                                item.status === 'watching' 
-                                  ? 'bg-primary/10 text-primary border-primary/20' 
-                                  : item.status === 'completed'
-                                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                                    : 'bg-white/5 text-muted-foreground border-border'
-                              }`}>
-                                {item.status === 'watching' ? <PlayCircle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                                {item.status.replace(/-/g, ' ')}
-                              </span>
-                              {item.type !== 'movie' && (
-                                <span className="bg-primary/10 text-primary px-3 py-1.5 rounded-xl border border-primary/20">
-                                  Episode {item.currentEpisode} / {item.totalEpisodes || '?'}
-                                </span>
-                              )}
-                            </div>
-                            {item.type !== 'movie' && item.totalEpisodes && (
-                              <div className="space-y-2">
-                                <Progress 
-                                  value={(item.currentEpisode || 0) / item.totalEpisodes * 100} 
-                                  className="h-2 bg-card progress-gradient" 
-                                />
-                                <div className="flex justify-end">
-                                  <span className="text-[10px] text-primary font-black tracking-widest">{Math.round(((item.currentEpisode || 0) / item.totalEpisodes) * 100)}% COMPLETE</span>
-                                </div>
-                              </div>
-                            )}
-                            {item.status === 'completed' && (
-                              <div className="flex items-center gap-3 mt-4 bg-white/5 p-3 rounded-2xl border border-border w-max">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mr-2">Your Rating</span>
-                                <StarRating 
-                                  rating={item.rating || 0} 
-                                  max={5} 
-                                  onRatingChange={(newRating) => updateItemRating(item.id, newRating)} 
-                                />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {item.type !== 'movie' && (
-                            <div className="flex items-center gap-1 bg-white/5 p-1.5 rounded-2xl border border-border">
-                              <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl hover:bg-white/10" onClick={() => updateProgress(item, false)}><MinusCircle className="w-5 h-5" /></Button>
-                              <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl hover:bg-white/10 text-primary" onClick={() => updateProgress(item, true)}><PlusCircle className="w-5 h-5" /></Button>
-                            </div>
-                          )}
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => markCompleted(item)}
-                            className="text-emerald-500 hover:bg-emerald-500/10 h-12 w-12 rounded-2xl border border-transparent hover:border-emerald-500/20"
-                          >
-                            <CheckCircle2 className="w-6 h-6" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => deleteItem(item.id)}
-                            className="text-zinc-600 hover:text-red-400 h-12 w-12 rounded-2xl border border-transparent hover:border-red-400/20"
-                          >
-                            <Trash2 className="w-6 h-6" />
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))
-                ) : (
-                  <div className="py-32 text-center space-y-6">
-                    <div className="w-24 h-24 bg-card/50 rounded-full flex items-center justify-center mx-auto border border-border">
-                      <Clock className="w-10 h-10 text-zinc-700" />
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-xl font-black text-muted-foreground">Your watchlist is empty</p>
-                      <p className="text-zinc-600 text-sm max-w-xs mx-auto">Let the AI assistant help you find your next cinematic journey!</p>
-                    </div>
+              {/* Letterboxd-Style Profile Banner Header */}
+              <div className="bg-[#1c252d] border border-[#2c3440] rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-6 animate-fade-in shadow-2xl relative overflow-hidden" style={{ background: '#1c252d' }}>
+                <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-[#00e054]/10 via-[#40bcf4]/5 to-transparent rounded-full blur-3xl pointer-events-none" />
+                
+                <div className="flex flex-col sm:flex-row items-center gap-5 relative z-10 w-full md:w-auto">
+                  <div className="w-20 h-20 rounded-full border-4 border-[#2c3440] bg-[#14181c] flex items-center justify-center overflow-hidden shrink-0 shadow-lg relative">
+                    {user?.photoURL ? (
+                      <img src={user.photoURL} alt={user.displayName || "User"} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-2xl font-black text-[#a1a1aa]">{user?.displayName?.[0]?.toUpperCase() || 'U'}</span>
+                    )}
                   </div>
-                )}
-              </div>
-
-              {/* Reminders Section */}
-              <div className="pt-12 space-y-8">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <h2 className="text-3xl font-black tracking-tighter flex items-center gap-3">
-                      <Bell className="w-6 h-6 text-primary" />
-                      Release Reminders
+                  <div className="text-center sm:text-left">
+                    <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2 justify-center sm:justify-start">
+                      {user?.displayName || "Cinephile"}
+                      <span className="text-xs bg-[#00e054]/20 text-[#00e054] px-2 py-0.5 rounded font-bold uppercase tracking-wider">PRO</span>
                     </h2>
-                    <p className="text-muted-foreground text-sm font-medium">Get notified when these items are released</p>
+                    <p className="text-[#a1a1aa] text-xs font-mono mt-1">
+                      @{user?.email?.split('@')[0] || 'cine_ai'} • LEVEL {level}
+                    </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="flex flex-wrap items-center justify-center md:justify-end gap-1.5 border-t md:border-t-0 border-[#2c3440] pt-4 md:pt-0 w-full md:w-auto relative z-10">
+                  {[
+                    { id: 'all', label: 'All Items', count: items.length },
+                    { id: 'completed', label: 'Films', count: items.filter(i => i.status === 'completed').length },
+                    { id: 'watching', label: 'Watching', count: items.filter(i => i.status === 'watching').length },
+                    { id: 'plan-to-watch', label: 'Watchlist', count: items.filter(i => i.status === 'plan-to-watch').length },
+                    { id: 'stats', label: 'Stats' },
+                  ].map((subTab) => {
+                    const isCurrent = subTab.id === 'stats'
+                      ? activeTab === 'stats'
+                      : watchlistFilterStatus === subTab.id;
+                      
+                    return (
+                      <button
+                        key={subTab.id}
+                        onClick={() => {
+                          if (subTab.id === 'stats') {
+                            navigateWithAnimation('stats');
+                          } else {
+                            setWatchlistFilterStatus(subTab.id as any);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-wider uppercase transition-all duration-300 cursor-pointer ${
+                          isCurrent
+                            ? 'bg-[#14181c] text-white border border-[#2c3440] shadow-inner font-black'
+                            : 'text-[#899aa9] hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        {subTab.label}
+                        {'count' in subTab && (
+                          <span className="ml-1.5 text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full text-zinc-400">
+                            {subTab.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Section Header & Letterboxd Filter Triggers */}
+              <div className="border-b border-[#2c3440] pb-2 mb-6 flex flex-col sm:flex-row sm:items-baseline justify-between gap-4 select-none">
+                <h3 className="text-[#a1a1aa] text-xs font-black tracking-[0.2em] uppercase">
+                  {watchlistFilterStatus === 'completed' ? 'WATCHED FILMS & SHOWS' : 
+                   watchlistFilterStatus === 'plan-to-watch' ? 'YOUR WATCHLIST' :
+                   watchlistFilterStatus === 'watching' ? 'CURRENTLY WATCHING' : 'ALL REGISTERED LIBRARY'}
+                </h3>
+                
+                {/* Inline filter dropdowns bar */}
+                <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                  {/* Status Filter */}
+                  {renderFilterDropdown(
+                    'status',
+                    'Status',
+                    watchlistFilterStatus === 'all' ? 'All' : watchlistFilterStatus === 'plan-to-watch' ? 'Watchlist' : watchlistFilterStatus === 'watching' ? 'Watching' : 'Films',
+                    [
+                      { value: 'all', label: 'All Statuses' },
+                      { value: 'plan-to-watch', label: 'Watchlist' },
+                      { value: 'watching', label: 'Watching' },
+                      { value: 'completed', label: 'Films (Watched)' }
+                    ],
+                    (val) => setWatchlistFilterStatus(val)
+                  )}
+
+                  {/* Type Filter */}
+                  {renderFilterDropdown(
+                    'type',
+                    'Type',
+                    watchlistFilterType === 'all' ? 'All' : watchlistFilterType === 'movie' ? 'Movies' : watchlistFilterType === 'series' ? 'Series' : 'Anime',
+                    [
+                      { value: 'all', label: 'All Types' },
+                      { value: 'movie', label: 'Movies' },
+                      { value: 'series', label: 'Series' },
+                      { value: 'anime', label: 'Anime' }
+                    ],
+                    (val) => setWatchlistFilterType(val)
+                  )}
+
+                  {/* Rating Filter */}
+                  {renderFilterDropdown(
+                    'rating',
+                    'Rating',
+                    watchlistRatingFilter === 'all' ? 'Any' : `${watchlistRatingFilter}★ & Up`,
+                    [
+                      { value: 'all', label: 'Any Rating' },
+                      { value: 5, label: '★★★★★ (5 Stars)' },
+                      { value: 4, label: '★★★★ & up' },
+                      { value: 3, label: '★★★ & up' },
+                      { value: 2, label: '★★ & up' },
+                      { value: 1, label: '★ & up' }
+                    ],
+                    (val) => setWatchlistRatingFilter(val)
+                  )}
+
+                  {/* Decade Filter */}
+                  {renderFilterDropdown(
+                    'decade',
+                    'Decade',
+                    watchlistDecadeFilter === 'all' ? 'All' : watchlistDecadeFilter === 'older' ? 'Older' : watchlistDecadeFilter,
+                    [
+                      { value: 'all', label: 'All Decades' },
+                      { value: '2020s', label: '2020s' },
+                      { value: '2010s', label: '2010s' },
+                      { value: '2000s', label: '2000s' },
+                      { value: '1990s', label: '1990s' },
+                      { value: '1980s', label: '1980s' },
+                      { value: 'older', label: 'Older' }
+                    ],
+                    (val) => setWatchlistDecadeFilter(val)
+                  )}
+
+                  {/* Genre Filter */}
+                  {renderFilterDropdown(
+                    'genre',
+                    'Genre',
+                    watchlistGenreFilter === 'all' ? 'All' : (TMDB_GENRE_MAP[watchlistGenreFilter as number] || 'Other'),
+                    [
+                      { value: 'all', label: 'All Genres' },
+                      ...availableGenreIds.map(id => ({ value: id, label: TMDB_GENRE_MAP[id] || 'Other' }))
+                    ],
+                    (val) => setWatchlistGenreFilter(val)
+                  )}
+
+                  {/* Sort Filter */}
+                  {renderFilterDropdown(
+                    'sort',
+                    'Sorted By',
+                    watchlistSort === 'newest_added' ? 'Newest' : watchlistSort === 'oldest_added' ? 'Oldest' : watchlistSort === 'highest_rated' ? 'Rating' : 'Title',
+                    [
+                      { value: 'newest_added', label: 'Date Added (Newest)' },
+                      { value: 'oldest_added', label: 'Date Added (Oldest)' },
+                      { value: 'highest_rated', label: 'Rating (Highest)' },
+                      { value: 'title_asc', label: 'Film Title (A-Z)' }
+                    ],
+                    (val) => setWatchlistSort(val)
+                  )}
+                </div>
+              </div>
+
+              {/* Dynamic Poster Grid Layout */}
+              <div>
+                {(() => {
+                  // Resolve Filtered & Sorted items
+                  let gridItems = [...items];
+                  
+                  if (watchlistFilterStatus !== 'all') {
+                    gridItems = gridItems.filter(i => i.status === watchlistFilterStatus);
+                  }
+                  if (watchlistFilterType !== 'all') {
+                    gridItems = gridItems.filter(i => i.type === watchlistFilterType);
+                  }
+                  if (watchlistGenreFilter !== 'all') {
+                    gridItems = gridItems.filter(i => i.genreIds && i.genreIds.includes(watchlistGenreFilter as number));
+                  }
+                  if (watchlistRatingFilter !== 'all') {
+                    gridItems = gridItems.filter(i => i.rating && i.rating >= (watchlistRatingFilter as number));
+                  }
+                  if (watchlistDecadeFilter !== 'all') {
+                    gridItems = gridItems.filter(i => {
+                      const d = (() => {
+                        const titleMatch = i.title?.match(/\b(19\d{2}|20\d{2})\b/);
+                        if (titleMatch) return Math.floor(parseInt(titleMatch[1]) / 10) * 10;
+                        if (i.createdAt) {
+                          try {
+                            const dateVal = i.createdAt.toDate ? i.createdAt.toDate() : new Date(i.createdAt);
+                            return Math.floor(dateVal.getFullYear() / 10) * 10;
+                          } catch (e) {}
+                        }
+                        return 2020;
+                      })();
+                      if (watchlistDecadeFilter === '2020s') return d === 2020;
+                      if (watchlistDecadeFilter === '2010s') return d === 2010;
+                      if (watchlistDecadeFilter === '2000s') return d === 2000;
+                      if (watchlistDecadeFilter === '1990s') return d === 1990;
+                      if (watchlistDecadeFilter === '1980s') return d === 1980;
+                      if (watchlistDecadeFilter === 'older') return d < 1980;
+                      return true;
+                    });
+                  }
+
+                  gridItems.sort((a, b) => {
+                    if (watchlistSort === 'newest_added') {
+                      const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+                      const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+                      return timeB - timeA;
+                    }
+                    if (watchlistSort === 'oldest_added') {
+                      const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+                      const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+                      return timeA - timeB;
+                    }
+                    if (watchlistSort === 'highest_rated') {
+                      return (b.rating || 0) - (a.rating || 0);
+                    }
+                    if (watchlistSort === 'title_asc') {
+                      return (a.title || '').localeCompare(b.title || '');
+                    }
+                    return 0;
+                  });
+
+                  if (gridItems.length > 0) {
+                    return (
+                      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-x-4 gap-y-7 pb-10">
+                        {gridItems.map((item, idx) => {
+                          // Utility function for Letterboxd Green Star String and Orange Heart
+                          const renderingStarsStr = (() => {
+                            if (!item.rating) return null;
+                            const fullStarsCount = Math.floor(item.rating);
+                            const hasHalf = item.rating % 1 >= 0.5;
+                            let starStr = '★'.repeat(fullStarsCount);
+                            if (hasHalf) starStr += '½';
+                            return starStr;
+                          })();
+
+                          return (
+                            <div 
+                              key={`${item.id}-${idx}`}
+                              className="group relative flex flex-col cursor-pointer transition-all duration-300"
+                            >
+                              {/* Poster Frame */}
+                              <div 
+                                className="relative aspect-[2/3] w-full rounded-lg overflow-hidden border border-[#2c3440] shadow-md group-hover:border-[#00e054] group-hover:shadow-[0_0_15px_rgba(0,224,84,0.15)] bg-[#1c252d] transition-all duration-300"
+                                onClick={() => {
+                                  handleSelectItem({ id: item.externalId, media_type: item.type === 'series' ? 'tv' : 'movie', genreIds: item.genreIds });
+                                }}
+                              >
+                                {item.posterUrl ? (
+                                  <img 
+                                    src={item.posterUrl} 
+                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" 
+                                    referrerPolicy="no-referrer" 
+                                    alt={item.title} 
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1578632738980-43318b5c9440?q=80&w=1000&auto=format&fit=crop';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex flex-col items-center justify-center p-3 text-center bg-zinc-900 border border-zinc-800">
+                                    <Film className="w-8 h-8 text-zinc-600 mb-1" />
+                                    <span className="text-[10px] font-black tracking-tight text-zinc-500 truncate w-full">{item.title}</span>
+                                  </div>
+                                )}
+
+                                {/* Compact Info Badges Overlay on Poster Corner */}
+                                <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
+                                  {item.status === 'watching' && (
+                                    <span className="bg-primary/95 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg uppercase tracking-tight flex items-center gap-1">
+                                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-black animate-pulse" />
+                                      {item.type === 'anime' ? 'Anime' : 'Watching'}
+                                    </span>
+                                  )}
+                                  {item.status === 'completed' && (
+                                    <span className="bg-[#00e054] text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg uppercase tracking-tight">
+                                      Watched
+                                    </span>
+                                  )}
+                                  {item.type !== 'movie' && item.currentEpisode !== undefined && (
+                                    <span className="bg-black/80 backdrop-blur-md text-white border border-white/10 text-[9px] font-mono px-1.5 py-0.5 rounded shadow">
+                                      Ep {item.currentEpisode}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Micro-controls overlay visible exclusively on hover */}
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20 flex flex-col justify-between p-3 select-none" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-between w-full">
+                                    <span className="text-[9px] font-black text-[#899aa9] tracking-wider uppercase bg-[#14181c]/90 px-2 py-0.5 rounded border border-[#2c3440]">
+                                      {item.type}
+                                    </span>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      onClick={() => {
+                                        deleteItem(item.id);
+                                        toast.success(`Removed "${item.title}"`);
+                                      }}
+                                      className="text-zinc-400 hover:text-red-500 h-6 w-6 rounded-md hover:bg-black/50 transition-all"
+                                      title="Remove from Library"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </div>
+
+                                  {/* Center action - open details or toggle Watch/Watched */}
+                                  <div className="flex justify-center">
+                                    <button 
+                                      onClick={() => {
+                                        handleSelectItem({ id: item.externalId, media_type: item.type === 'series' ? 'tv' : 'movie', genreIds: item.genreIds });
+                                      }}
+                                      className="bg-[#00e054] hover:bg-[#00c030] active:scale-95 text-black p-2.5 rounded-full shadow-xl transition-all font-bold text-xs"
+                                      title="Open Details & Reviews"
+                                    >
+                                      <Info className="w-5 h-5 text-black font-black" />
+                                    </button>
+                                  </div>
+
+                                  {/* Bottom quick toggle row */}
+                                  <div className="flex items-center justify-between gap-1 mt-auto">
+                                    {item.status !== 'completed' ? (
+                                      <button 
+                                        onClick={async () => {
+                                          await markCompleted(item);
+                                        }}
+                                        className="w-full bg-[#14181c] border border-[#2c3440] hover:border-[#00e054] text-zinc-300 hover:text-white py-1 rounded text-[10px] font-black uppercase text-center tracking-tight transition-all"
+                                      >
+                                        Mark Watched
+                                      </button>
+                                    ) : (
+                                      <div className="text-[10px] font-mono font-bold text-center w-full text-zinc-400">
+                                        Rating Added
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Interactive Stars & Heart display underneath poster matching Letterboxd */}
+                              <div className="mt-2.5 px-0.5 flex flex-col" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1 justify-start">
+                                  {renderingStarsStr ? (
+                                    <div 
+                                      className="flex font-semibold tracking-wide text-[#00e054] text-[11px]"
+                                      title={`User Rating: ${item.rating || 0}/5. Click to change.`}
+                                    >
+                                      {[1, 2, 3, 4, 5].map((starVal) => {
+                                        const isFilled = (item.rating || 0) >= starVal;
+                                        return (
+                                          <button
+                                            key={starVal}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              updateItemRating(item.id, starVal);
+                                              toast.success(`Rated "${item.title}" ${starVal} stars`);
+                                            }}
+                                            className={`transition-all duration-200 hover:scale-135 cursor-pointer origin-center pr-0.5 ${
+                                              isFilled ? 'text-[#00e054]' : 'text-zinc-800 hover:text-[#00e054]/50'
+                                            }`}
+                                          >
+                                            ★
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="flex text-zinc-800 text-[11px] font-bold">
+                                      {[1, 2, 3, 4, 5].map((starVal) => (
+                                        <button
+                                          key={starVal}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            updateItemRating(item.id, starVal);
+                                            toast.success(`Rated "${item.title}" ${starVal} stars`);
+                                          }}
+                                          className="hover:scale-135 transition-all text-zinc-800 hover:text-[#00e054]/50 pr-0.5 cursor-pointer"
+                                        >
+                                          ★
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {item.rating && item.rating >= 4 && (
+                                    <span 
+                                      className="text-[#ff8000] text-xs leading-none select-none inline-block ml-1 animate-pulse" 
+                                      title="Highly Recommended / Liked"
+                                    >
+                                      ♥
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Text Label Under Stars */}
+                                <span className="text-[11px] font-bold text-[#9ab] truncate mt-1 leading-tight group-hover:text-white transition-colors">
+                                  {item.title}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div className="py-24 text-center space-y-5 bg-[#1c252d]/40 rounded-3xl border border-[#2c3440]/60">
+                        <div className="w-20 h-20 bg-[#1c252d] border border-[#2c3440] rounded-full flex items-center justify-center mx-auto shadow-inner">
+                          <Film className="w-8 h-8 text-zinc-600 animate-pulse" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-lg font-black text-white/90">No matched items found</p>
+                          <p className="text-[#899aa9] text-xs max-w-sm mx-auto">Try adjusting your Letterboxd filters above, or explore new releases to start logging!</p>
+                        </div>
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+
+              {/* Reminders Section styled with Letterboxd Aesthetics */}
+              <div className="pt-10 border-t border-[#2c3440]/60 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2.5 font-display uppercase">
+                      <Bell className="w-5 h-5 text-[#ff8000]" />
+                      Release Reminders
+                    </h2>
+                    <p className="text-[#899aa9] text-xs">Notify me instantly on physical or digital stream releases</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {reminders.length > 0 ? (
                     reminders.map((reminder) => (
                       <Card 
                         key={reminder.id} 
-                        className="bg-card/40 border-border backdrop-blur-md hover:border-amber-500/30 transition-all group overflow-hidden rounded-[2rem] shadow-2xl"
+                        className="bg-[#1c252d] border-[#2c3440] hover:border-[#40bcf4]/50 transition-all duration-300 group overflow-hidden rounded-xl shadow-md"
                       >
-                        <CardContent className="p-5 flex items-center gap-6">
-                          <div className="w-16 h-24 rounded-xl overflow-hidden shrink-0 bg-muted shadow-xl">
+                        <CardContent className="p-4 flex items-center gap-5">
+                          <div className="w-12 h-18 rounded overflow-hidden shrink-0 bg-zinc-950 shadow border border-white/5">
                             {reminder.posterUrl ? (
                               <img 
                                 src={reminder.posterUrl.startsWith('http') ? reminder.posterUrl : `https://image.tmdb.org/t/p/w185${reminder.posterUrl}`} 
@@ -6736,20 +7232,20 @@ function MediaTracker() {
                                 alt={reminder.title} 
                               />
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center"><Film className="w-6 h-6 text-zinc-700" /></div>
+                              <div className="w-full h-full flex items-center justify-center"><Film className="w-5 h-5 text-zinc-700" /></div>
                             )}
                           </div>
-                          <div className="flex-1 min-w-0 space-y-2">
-                            <h3 className="font-black text-lg truncate tracking-tight">{reminder.title}</h3>
-                            <div className="flex items-center gap-2 text-[10px] font-black text-primary uppercase tracking-widest">
-                              <Calendar className="w-3 h-3" />
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <h3 className="font-extrabold text-sm text-white truncate">{reminder.title}</h3>
+                            <div className="flex items-center gap-1.5 text-[10px] font-black text-[#40bcf4] uppercase tracking-wider font-mono">
+                              <Calendar className="w-3.5 h-3.5 shrink-0" />
                               Releases: {reminder.releaseDate || 'TBA'}
                             </div>
                           </div>
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="w-10 h-10 rounded-xl hover:bg-red-400/10 hover:text-red-400 text-zinc-600 transition-all"
+                            className="w-9 h-9 rounded-lg hover:bg-red-500/10 hover:text-red-400 text-[#556677] transition-all shrink-0 cursor-pointer"
                             onClick={async () => {
                               try {
                                 await deleteDoc(doc(db, 'reminders', reminder.id));
@@ -6765,8 +7261,8 @@ function MediaTracker() {
                       </Card>
                     ))
                   ) : (
-                    <div className="col-span-full py-12 text-center space-y-4 bg-card/20 rounded-[2rem] border border-border">
-                      <p className="text-zinc-600 text-sm font-medium">No active reminders</p>
+                    <div className="col-span-full py-8 text-center bg-[#1c252d]/20 rounded-xl border border-dashed border-[#2c3440]/80">
+                      <p className="text-[#556677] text-xs font-medium">No active reminders tracked currently</p>
                     </div>
                   )}
                 </div>
@@ -6780,93 +7276,429 @@ function MediaTracker() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-8"
+              className="space-y-6"
             >
-              <div className="flex items-center justify-between mb-10">
-                <div className="space-y-1">
-                  <h2 className="text-4xl font-black tracking-tighter">Watch History</h2>
-                  <p className="text-muted-foreground text-sm font-medium">Your completed cinematic journeys</p>
+              {activeDropdown && (
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setActiveDropdown(null)} />
+              )}
+
+              {/* Letterboxd-Style Profile Banner Header */}
+              <div className="bg-[#1c252d] border border-[#2c3440] rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-6 animate-fade-in shadow-2xl relative overflow-hidden" style={{ background: '#1c252d' }}>
+                <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-[#00e054]/10 via-[#40bcf4]/5 to-transparent rounded-full blur-3xl pointer-events-none" />
+                
+                <div className="flex flex-col sm:flex-row items-center gap-5 relative z-10 w-full md:w-auto">
+                  <div className="w-20 h-20 rounded-full border-4 border-[#2c3440] bg-[#14181c] flex items-center justify-center overflow-hidden shrink-0 shadow-lg relative">
+                    {user?.photoURL ? (
+                      <img src={user.photoURL} alt={user.displayName || "User"} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-2xl font-black text-[#a1a1aa]">{user?.displayName?.[0]?.toUpperCase() || 'U'}</span>
+                    )}
+                  </div>
+                  <div className="text-center sm:text-left">
+                    <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2 justify-center sm:justify-start">
+                      {user?.displayName || "Cinephile"}
+                      <span className="text-xs bg-[#00e054]/20 text-[#00e054] px-2 py-0.5 rounded font-bold uppercase tracking-wider">PRO</span>
+                    </h2>
+                    <p className="text-[#a1a1aa] text-xs font-mono mt-1">
+                      @{user?.email?.split('@')[0] || 'cine_ai'} • LEVEL {level}
+                    </p>
+                  </div>
                 </div>
-                <Badge className="bg-emerald-500 text-black font-black px-4 py-2 rounded-xl shadow-lg shadow-emerald-500/20">
-                  {items.filter(i => i.status === 'completed').length} WATCHED
-                </Badge>
+
+                <div className="flex flex-wrap items-center justify-center md:justify-end gap-1.5 border-t md:border-t-0 border-[#2c3440] pt-4 md:pt-0 w-full md:w-auto relative z-10">
+                  {[
+                    { id: 'all', label: 'All Items', count: items.length },
+                    { id: 'completed', label: 'Films', count: items.filter(i => i.status === 'completed').length },
+                    { id: 'watching', label: 'Watching', count: items.filter(i => i.status === 'watching').length },
+                    { id: 'plan-to-watch', label: 'Watchlist', count: items.filter(i => i.status === 'plan-to-watch').length },
+                    { id: 'stats', label: 'Stats' },
+                  ].map((subTab) => {
+                    const isCurrent = subTab.id === 'stats'
+                      ? activeTab === 'stats'
+                      : watchlistFilterStatus === subTab.id;
+                      
+                    return (
+                      <button
+                        key={subTab.id}
+                        onClick={() => {
+                          if (subTab.id === 'stats') {
+                            navigateWithAnimation('stats');
+                          } else {
+                            setWatchlistFilterStatus(subTab.id as any);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-wider uppercase transition-all duration-300 cursor-pointer ${
+                          isCurrent
+                            ? 'bg-[#14181c] text-white border border-[#2c3440] shadow-inner font-black'
+                            : 'text-[#899aa9] hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        {subTab.label}
+                        {'count' in subTab && (
+                          <span className="ml-1.5 text-[10px] bg-black/40 px-1.5 py-0.5 rounded-full text-zinc-400">
+                            {subTab.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              <div className="grid gap-8">
-                {items.filter(i => i.status === 'completed').length > 0 ? (
-                  items.filter(i => i.status === 'completed').map((item, idx) => (
-                    <Card 
-                      key={`${item.id}-${idx}`} 
-                      className="bg-card/40 border-border backdrop-blur-md overflow-hidden rounded-[2.5rem] shadow-2xl group"
-                    >
-                      <CardContent className="p-8 flex gap-8">
-                        <div 
-                          className="w-32 h-48 rounded-2xl overflow-hidden shrink-0 shadow-2xl cursor-pointer relative group/poster"
-                          onClick={() => {
-                            handleSelectItem({ id: item.externalId, media_type: item.type === 'series' ? 'tv' : 'movie', genreIds: item.genreIds });
-                          }}
-                        >
-                          <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover/poster:opacity-100 transition-opacity z-10 flex items-center justify-center">
-                            <Info className="w-10 h-10 text-white" />
-                          </div>
-                          {item.posterUrl ? (
-                            <img src={item.posterUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" referrerPolicy="no-referrer" alt={item.title} />
-                          ) : (
-                            <div className="w-full h-full bg-muted flex items-center justify-center"><Film className="w-12 h-12 text-zinc-700" /></div>
-                          )}
-                        </div>
-                        <div className="flex-1 space-y-6">
-                          <div className="flex items-start justify-between">
-                            <div className="space-y-1">
-                              <h3 className="text-3xl font-black tracking-tighter leading-none">{item.title}</h3>
-                              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-[0.2em] mt-3">
-                                {item.type} • COMPLETED 
-                                {item.type !== 'movie' && ` • ${item.totalEpisodes} EPISODES`}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 bg-primary/10 px-4 py-2 rounded-2xl border border-primary/20 shadow-lg shadow-primary/5">
-                              <StarRating 
-                                rating={item.rating || 0} 
-                                max={5} 
-                                onRatingChange={(newRating) => updateItemRating(item.id, newRating)} 
-                              />
-                            </div>
-                          </div>
-                          {item.notes && (
-                            <div className="bg-white/5 p-5 rounded-3xl border border-border italic text-muted-foreground text-sm leading-relaxed relative">
-                              <div className="absolute -top-3 -left-1 text-4xl text-white/5 font-serif">"</div>
-                              {item.notes}
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between pt-2">
-                            <div className="flex items-center gap-2 text-[10px] text-zinc-600 uppercase font-black tracking-widest">
-                              <Clock className="w-3 h-3" />
-                              Watched on {item.updatedAt?.toDate().toLocaleDateString()}
-                            </div>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              className="text-zinc-600 hover:text-red-400 h-10 px-4 rounded-xl hover:bg-red-400/10 transition-all font-black uppercase text-[10px] tracking-widest" 
-                              onClick={() => deleteItem(item.id)}
+              {/* Section Header & Letterboxd Filter Triggers */}
+              <div className="border-b border-[#2c3440] pb-2 mb-6 flex flex-col sm:flex-row sm:items-baseline justify-between gap-4 select-none">
+                <h3 className="text-[#a1a1aa] text-xs font-black tracking-[0.2em] uppercase">
+                  {watchlistFilterStatus === 'completed' ? 'WATCHED FILMS & SHOWS' : 
+                   watchlistFilterStatus === 'plan-to-watch' ? 'YOUR WATCHLIST' :
+                   watchlistFilterStatus === 'watching' ? 'CURRENTLY WATCHING' : 'ALL REGISTERED LIBRARY'}
+                </h3>
+                
+                {/* Inline filter dropdowns bar */}
+                <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                  {/* Status Filter */}
+                  {renderFilterDropdown(
+                    'status',
+                    'Status',
+                    watchlistFilterStatus === 'all' ? 'All' : watchlistFilterStatus === 'plan-to-watch' ? 'Watchlist' : watchlistFilterStatus === 'watching' ? 'Watching' : 'Films',
+                    [
+                      { value: 'all', label: 'All Statuses' },
+                      { value: 'plan-to-watch', label: 'Watchlist' },
+                      { value: 'watching', label: 'Watching' },
+                      { value: 'completed', label: 'Films (Watched)' }
+                    ],
+                    (val) => setWatchlistFilterStatus(val)
+                  )}
+
+                  {/* Type Filter */}
+                  {renderFilterDropdown(
+                    'type',
+                    'Type',
+                    watchlistFilterType === 'all' ? 'All' : watchlistFilterType === 'movie' ? 'Movies' : watchlistFilterType === 'series' ? 'Series' : 'Anime',
+                    [
+                      { value: 'all', label: 'All Types' },
+                      { value: 'movie', label: 'Movies' },
+                      { value: 'series', label: 'Series' },
+                      { value: 'anime', label: 'Anime' }
+                    ],
+                    (val) => setWatchlistFilterType(val)
+                  )}
+
+                  {/* Rating Filter */}
+                  {renderFilterDropdown(
+                    'rating',
+                    'Rating',
+                    watchlistRatingFilter === 'all' ? 'Any' : `${watchlistRatingFilter}★ & Up`,
+                    [
+                      { value: 'all', label: 'Any Rating' },
+                      { value: 5, label: '★★★★★ (5 Stars)' },
+                      { value: 4, label: '★★★★ & up' },
+                      { value: 3, label: '★★★ & up' },
+                      { value: 2, label: '★★ & up' },
+                      { value: 1, label: '★ & up' }
+                    ],
+                    (val) => setWatchlistRatingFilter(val)
+                  )}
+
+                  {/* Decade Filter */}
+                  {renderFilterDropdown(
+                    'decade',
+                    'Decade',
+                    watchlistDecadeFilter === 'all' ? 'All' : watchlistDecadeFilter === 'older' ? 'Older' : watchlistDecadeFilter,
+                    [
+                      { value: 'all', label: 'All Decades' },
+                      { value: '2020s', label: '2020s' },
+                      { value: '2010s', label: '2010s' },
+                      { value: '2000s', label: '2000s' },
+                      { value: '1990s', label: '1990s' },
+                      { value: '1980s', label: '1980s' },
+                      { value: 'older', label: 'Older' }
+                    ],
+                    (val) => setWatchlistDecadeFilter(val)
+                  )}
+
+                  {/* Genre Filter */}
+                  {renderFilterDropdown(
+                    'genre',
+                    'Genre',
+                    watchlistGenreFilter === 'all' ? 'All' : (TMDB_GENRE_MAP[watchlistGenreFilter as number] || 'Other'),
+                    [
+                      { value: 'all', label: 'All Genres' },
+                      ...availableGenreIds.map(id => ({ value: id, label: TMDB_GENRE_MAP[id] || 'Other' }))
+                    ],
+                    (val) => setWatchlistGenreFilter(val)
+                  )}
+
+                  {/* Sort Filter */}
+                  {renderFilterDropdown(
+                    'sort',
+                    'Sorted By',
+                    watchlistSort === 'newest_added' ? 'Newest' : watchlistSort === 'oldest_added' ? 'Oldest' : watchlistSort === 'highest_rated' ? 'Rating' : 'Title',
+                    [
+                      { value: 'newest_added', label: 'Date Added (Newest)' },
+                      { value: 'oldest_added', label: 'Date Added (Oldest)' },
+                      { value: 'highest_rated', label: 'Rating (Highest)' },
+                      { value: 'title_asc', label: 'Film Title (A-Z)' }
+                    ],
+                    (val) => setWatchlistSort(val)
+                  )}
+                </div>
+              </div>
+
+              {/* Dynamic Poster Grid Layout */}
+              <div>
+                {(() => {
+                  // Resolve Filtered & Sorted items
+                  let gridItems = [...items];
+                  
+                  if (watchlistFilterStatus !== 'all') {
+                    gridItems = gridItems.filter(i => i.status === watchlistFilterStatus);
+                  }
+                  if (watchlistFilterType !== 'all') {
+                    gridItems = gridItems.filter(i => i.type === watchlistFilterType);
+                  }
+                  if (watchlistGenreFilter !== 'all') {
+                    gridItems = gridItems.filter(i => i.genreIds && i.genreIds.includes(watchlistGenreFilter as number));
+                  }
+                  if (watchlistRatingFilter !== 'all') {
+                    gridItems = gridItems.filter(i => i.rating && i.rating >= (watchlistRatingFilter as number));
+                  }
+                  if (watchlistDecadeFilter !== 'all') {
+                    gridItems = gridItems.filter(i => {
+                      const d = (() => {
+                        const titleMatch = i.title?.match(/\b(19\d{2}|20\d{2})\b/);
+                        if (titleMatch) return Math.floor(parseInt(titleMatch[1]) / 10) * 10;
+                        if (i.createdAt) {
+                          try {
+                            const dateVal = i.createdAt.toDate ? i.createdAt.toDate() : new Date(i.createdAt);
+                            return Math.floor(dateVal.getFullYear() / 10) * 10;
+                          } catch (e) {}
+                        }
+                        return 2020;
+                      })();
+                      if (watchlistDecadeFilter === '2020s') return d === 2020;
+                      if (watchlistDecadeFilter === '2010s') return d === 2010;
+                      if (watchlistDecadeFilter === '2000s') return d === 2000;
+                      if (watchlistDecadeFilter === '1990s') return d === 1990;
+                      if (watchlistDecadeFilter === '1980s') return d === 1980;
+                      if (watchlistDecadeFilter === 'older') return d < 1980;
+                      return true;
+                    });
+                  }
+
+                  gridItems.sort((a, b) => {
+                    if (watchlistSort === 'newest_added') {
+                      const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+                      const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+                      return timeB - timeA;
+                    }
+                    if (watchlistSort === 'oldest_added') {
+                      const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+                      const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+                      return timeA - timeB;
+                    }
+                    if (watchlistSort === 'highest_rated') {
+                      return (b.rating || 0) - (a.rating || 0);
+                    }
+                    if (watchlistSort === 'title_asc') {
+                      return (a.title || '').localeCompare(b.title || '');
+                    }
+                    return 0;
+                  });
+
+                  if (gridItems.length > 0) {
+                    return (
+                      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-x-4 gap-y-7 pb-10">
+                        {gridItems.map((item, idx) => {
+                          // Utility function for Letterboxd Green Star String and Orange Heart
+                          const renderingStarsStr = (() => {
+                            if (!item.rating) return null;
+                            const fullStarsCount = Math.floor(item.rating);
+                            const hasHalf = item.rating % 1 >= 0.5;
+                            let starStr = '★'.repeat(fullStarsCount);
+                            if (hasHalf) starStr += '½';
+                            return starStr;
+                          })();
+
+                          return (
+                            <div 
+                              key={`${item.id}-${idx}`}
+                              className="group relative flex flex-col cursor-pointer transition-all duration-300"
                             >
-                              Remove from history
-                            </Button>
-                          </div>
+                              {/* Poster Frame */}
+                              <div 
+                                className="relative aspect-[2/3] w-full rounded-lg overflow-hidden border border-[#2c3440] shadow-md group-hover:border-[#00e054] group-hover:shadow-[0_0_15px_rgba(0,224,84,0.15)] bg-[#1c252d] transition-all duration-300"
+                                onClick={() => {
+                                  handleSelectItem({ id: item.externalId, media_type: item.type === 'series' ? 'tv' : 'movie', genreIds: item.genreIds });
+                                }}
+                              >
+                                {item.posterUrl ? (
+                                  <img 
+                                    src={item.posterUrl} 
+                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" 
+                                    referrerPolicy="no-referrer" 
+                                    alt={item.title} 
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1578632738980-43318b5c9440?q=80&w=1000&auto=format&fit=crop';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex flex-col items-center justify-center p-3 text-center bg-zinc-900 border border-zinc-800">
+                                    <Film className="w-8 h-8 text-zinc-600 mb-1" />
+                                    <span className="text-[10px] font-black tracking-tight text-zinc-500 truncate w-full">{item.title}</span>
+                                  </div>
+                                )}
+
+                                {/* Compact Info Badges Overlay on Poster Corner */}
+                                <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
+                                  {item.status === 'watching' && (
+                                    <span className="bg-primary/95 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg uppercase tracking-tight flex items-center gap-1">
+                                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-black animate-pulse" />
+                                      {item.type === 'anime' ? 'Anime' : 'Watching'}
+                                    </span>
+                                  )}
+                                  {item.status === 'completed' && (
+                                    <span className="bg-[#00e054] text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg uppercase tracking-tight">
+                                      Watched
+                                    </span>
+                                  )}
+                                  {item.type !== 'movie' && item.currentEpisode !== undefined && (
+                                    <span className="bg-black/80 backdrop-blur-md text-white border border-white/10 text-[9px] font-mono px-1.5 py-0.5 rounded shadow">
+                                      Ep {item.currentEpisode}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Micro-controls overlay visible exclusively on hover */}
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20 flex flex-col justify-between p-3 select-none" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-between w-full">
+                                    <span className="text-[9px] font-black text-[#899aa9] tracking-wider uppercase bg-[#14181c]/90 px-2 py-0.5 rounded border border-[#2c3440]">
+                                      {item.type}
+                                    </span>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      onClick={() => {
+                                        deleteItem(item.id);
+                                        toast.success(`Removed "${item.title}"`);
+                                      }}
+                                      className="text-zinc-400 hover:text-red-500 h-6 w-6 rounded-md hover:bg-black/50 transition-all"
+                                      title="Remove from Library"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </div>
+
+                                  {/* Center action - open details or toggle Watch/Watched */}
+                                  <div className="flex justify-center">
+                                    <button 
+                                      onClick={() => {
+                                        handleSelectItem({ id: item.externalId, media_type: item.type === 'series' ? 'tv' : 'movie', genreIds: item.genreIds });
+                                      }}
+                                      className="bg-[#00e054] hover:bg-[#00c030] active:scale-95 text-black p-2.5 rounded-full shadow-xl transition-all font-bold text-xs"
+                                      title="Open Details & Reviews"
+                                    >
+                                      <Info className="w-5 h-5 text-black font-black" />
+                                    </button>
+                                  </div>
+
+                                  {/* Bottom quick toggle row */}
+                                  <div className="flex items-center justify-between gap-1 mt-auto">
+                                    {item.status !== 'completed' ? (
+                                      <button 
+                                        onClick={async () => {
+                                          await markCompleted(item);
+                                        }}
+                                        className="w-full bg-[#14181c] border border-[#2c3440] hover:border-[#00e054] text-zinc-300 hover:text-white py-1 rounded text-[10px] font-black uppercase text-center tracking-tight transition-all"
+                                      >
+                                        Mark Watched
+                                      </button>
+                                    ) : (
+                                      <div className="text-[10px] font-mono font-bold text-center w-full text-zinc-400">
+                                        Rating Added
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Interactive Stars & Heart display underneath poster matching Letterboxd */}
+                              <div className="mt-2.5 px-0.5 flex flex-col" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1 justify-start">
+                                  {renderingStarsStr ? (
+                                    <div 
+                                      className="flex font-semibold tracking-wide text-[#00e054] text-[11px]"
+                                      title={`User Rating: ${item.rating || 0}/5. Click to change.`}
+                                    >
+                                      {[1, 2, 3, 4, 5].map((starVal) => {
+                                        const isFilled = (item.rating || 0) >= starVal;
+                                        return (
+                                          <button
+                                            key={starVal}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              updateItemRating(item.id, starVal);
+                                              toast.success(`Rated "${item.title}" ${starVal} stars`);
+                                            }}
+                                            className={`transition-all duration-200 hover:scale-135 cursor-pointer origin-center pr-0.5 ${
+                                              isFilled ? 'text-[#00e054]' : 'text-zinc-800 hover:text-[#00e054]/50'
+                                            }`}
+                                          >
+                                            ★
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="flex text-zinc-800 text-[11px] font-bold">
+                                      {[1, 2, 3, 4, 5].map((starVal) => (
+                                        <button
+                                          key={starVal}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            updateItemRating(item.id, starVal);
+                                            toast.success(`Rated "${item.title}" ${starVal} stars`);
+                                          }}
+                                          className="hover:scale-135 transition-all text-zinc-800 hover:text-[#00e054]/50 pr-0.5 cursor-pointer"
+                                        >
+                                          ★
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {item.rating && item.rating >= 4 && (
+                                    <span 
+                                      className="text-[#ff8000] text-xs leading-none select-none inline-block ml-1 animate-pulse" 
+                                      title="Highly Recommended / Liked"
+                                    >
+                                      ♥
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Text Label Under Stars */}
+                                <span className="text-[11px] font-bold text-[#9ab] truncate mt-1 leading-tight group-hover:text-white transition-colors">
+                                  {item.title}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div className="py-24 text-center space-y-5 bg-[#1c252d]/40 rounded-3xl border border-[#2c3440]/60">
+                        <div className="w-20 h-20 bg-[#1c252d] border border-[#2c3440] rounded-full flex items-center justify-center mx-auto shadow-inner">
+                          <History className="w-8 h-8 text-zinc-600 animate-pulse" />
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))
-                ) : (
-                  <div className="py-32 text-center space-y-6">
-                    <div className="w-24 h-24 bg-card/50 rounded-full flex items-center justify-center mx-auto border border-border">
-                      <History className="w-10 h-10 text-zinc-700" />
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-xl font-black text-muted-foreground">No watch history yet</p>
-                      <p className="text-zinc-600 text-sm max-w-xs mx-auto">Start your cinematic journey and track your progress here!</p>
-                    </div>
-                  </div>
-                )}
+                        <div className="space-y-1">
+                          <p className="text-lg font-black text-white/90">No watch history logged yet</p>
+                          <p className="text-[#899aa9] text-xs max-w-sm mx-auto">Explore moods, select films, and log your reviews to build your profile feed!</p>
+                        </div>
+                      </div>
+                    );
+                  }
+                })()}
               </div>
             </motion.div>
           )}
@@ -7317,6 +8149,10 @@ function MediaTracker() {
            setTrailerKey(key);
            setTrailerModalOpen(true);
         }}
+        episodeProgress={items.find(i => i.externalId === selectedItem?.id)?.episodeProgress || {}}
+        onUpdateEpisodeProgress={onUpdateEpisodeProgress}
+        episodeRatings={items.find(i => i.externalId === selectedItem?.id)?.episodeRatings || {}}
+        onUpdateEpisodeRating={onUpdateEpisodeRating}
       />
 
       {trailerModalOpen && trailerKey && (
